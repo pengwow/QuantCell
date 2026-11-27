@@ -61,11 +61,16 @@ def test_extract_param_with_class_defaults():
 
 
 def test_builtin_grid_template_has_params():
-    """真实模板冒烟：grid.py 应提取出 lower/upper/levels/position_limit。"""
+    """真实模板冒烟：grid.py 应提取出完整价格计划配置项（区间/档位/仓位上限）。"""
+    from strategy.service import _has_price_plan_method
+
     src = Path("strategy/templates/grid.py").read_text(encoding="utf-8")
     info = StrategyService()._parse_strategy_file("grid", src)
     names = [p["name"] for p in info["params"]]
-    assert {"lower", "upper", "levels"} <= set(names)
+    # 2026-11 模板计划型升级：创建表单必须完整覆盖 grid_plan 公式四件套
+    assert {"lower", "upper", "levels", "position_limit"} <= set(names)
+    # has_price_plan 协议探测（与落盘 strategies/{name}.py 的探测同一函数本体）
+    assert _has_price_plan_method(Path("strategy/templates/grid.py"))
 
 
 LITERAL_BINDING_SRC = """
@@ -94,6 +99,27 @@ def test_literal_annotation_param_becomes_select():
     assert ps["fast"] == {"name": "fast", "type": "int", "default": 10, "description": "", "required": False}
 
 
+def test_duplicate_literal_binding_extracted_once():
+    """同名 Literal 绑定出现在多个方法（如 direction 在 _fix_plan/_open 各取一次）
+    → 只提取一次。回归背景：2026-11-27 实测 templates 接口返回了两个 direction，
+    表单会渲染重复字段（AnnAssign 分支漏检 seen）。"""
+    src = """
+from typing import Literal
+
+class Dummy6(BaseStrategy):
+    def _fix_plan(self):
+        direction: Literal["long", "short", "both"] = self.get_param("direction", "long")
+        return direction
+
+    def _open(self, bar):
+        direction: Literal["long", "short", "both"] = self.get_param("direction", "long")
+        return direction
+"""
+    ps = _params(src)
+    assert list(ps) == ["direction"]
+    assert ps["direction"]["options"] == ["long", "short", "both"]
+
+
 def test_literal_binding_requires_name_match():
     """注解目标名与 get_param 首参不一致 → 不绑定，内层 Call 降级为普通条目。"""
     src = """
@@ -120,12 +146,27 @@ class Dummy5(BaseStrategy):
 
 
 def test_martingale_template_direction_is_select():
-    """真实模板冒烟：martingale.py 的 direction 应解析为 select + options。"""
-    src = Path("strategy/templates/martingale.py").read_text(encoding="utf-8")
-    info = StrategyService()._parse_strategy_file("martingale", src)
+    """真实模板冒烟：direction select + 价格计划配置项完整（2026-11 计划型模板）。"""
+    from strategy.service import _has_price_plan_method
+
+    martingale_src = Path("strategy/templates/martingale.py").read_text(encoding="utf-8")
+    info = StrategyService()._parse_strategy_file("martingale", martingale_src)
     direction = next(p for p in info["params"] if p["name"] == "direction")
     assert direction["type"] == "select"
     assert direction["options"] == ["long", "short", "both"]
+    # 价格计划完整配置项必须在创建表单提取源中（spacing/layer/take_profit 为 2026-11 补充）
+    names = [p["name"] for p in info["params"]]
+    assert {
+        "base_position",
+        "multiplier",
+        "max_multiplier",
+        "position_limit",
+        "spacing_pct",
+        "spacing_multiplier",
+        "layer_count",
+        "take_profit_pct",
+    } <= set(names)
+    assert _has_price_plan_method(Path("strategy/templates/martingale.py"))
 
 
 def test_merge_db_params_backfills_select_options():

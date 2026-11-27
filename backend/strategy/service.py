@@ -96,6 +96,17 @@ _PARAM_DESC_MAP: dict[str, str] = {
     "buy_threshold": "因子买入阈值",
     "sell_threshold": "因子卖出阈值",
     "position_limit": "目标仓位上限",
+    # —— 价格计划参数（grid / martingale，缺省值口径与 price_plan 公式库对齐）——
+    "lower": "网格区间下沿价格",
+    "upper": "网格区间上沿价格",
+    "levels": "网格档位数（区间内等距放 levels+1 条档位线）",
+    "base_position": "建仓层仓位（占 position_limit 的比例）",
+    "multiplier": "加仓仓位倍数（每层相对上一层）",
+    "max_multiplier": "加仓仓位倍数上限（建议 ≤ 4，防爆仓）",
+    "spacing_pct": "首层间距（%）：第 1 加仓层距入场价的百分比",
+    "spacing_multiplier": "间距递增倍数：每层间距 = 上一层间距 × 该倍数",
+    "layer_count": "计划总层数（含建仓层）",
+    "take_profit_pct": "篮子止盈幅度（%）：加权均价上浮该百分比触发全平",
 }
 
 
@@ -1186,7 +1197,9 @@ class StrategyService:
                 options = _literal_options_from_annotation(node.annotation)
                 if options:
                     entry = StrategyService._param_entry_from_literal_binding(node, options, defaults)
-                    if entry:
+                    # 同名 Literal 绑定可能出现在多个方法里（如 direction 在 _fix_plan/_open
+                    # 各取一次），表单只能有一个同名参数 → seen 去重，首次绑定为准
+                    if entry and entry["name"] not in seen:
                         seen.add(entry["name"])
                         result.append(entry)
                 continue
