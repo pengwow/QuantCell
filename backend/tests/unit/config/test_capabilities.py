@@ -166,7 +166,8 @@ async def test_start_live_worker_403_when_disabled(capability_off, monkeypatch):
 async def test_start_paper_worker_reaches_service_when_disabled(capability_off, monkeypatch):
     monkeypatch.setattr(worker_routes.crud, "get_worker", lambda db, wid: _fake_worker("paper"))
 
-    async def _start(worker_id):
+    # ref_price 为新增的可选启动参数（价格计划固化锚点，缺省 None），stub 签名跟进路由真实契约
+    async def _start(worker_id, ref_price=None):
         return {"worker_id": worker_id, "status": "starting"}
 
     async def _state(worker_id):
