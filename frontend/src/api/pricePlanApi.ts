@@ -8,8 +8,12 @@ import type { PricePlanPreviewResponse, WorkerPlanResponse } from '../types/pric
 
 export interface PricePlanPreviewPayload {
   strategy_name: string;
-  params?: Record<string, unknown>;
-  ref_price?: number;
+  params: Record<string, unknown>;
+  ref_price: number | null;
+  /** 多标的预览：当前标的（后端按它取 params_by_symbol 对应覆盖） */
+  symbol?: string;
+  /** 按标的参数覆盖 {symbol: {param: value}}（spec 2026-11-28） */
+  params_by_symbol?: Record<string, Record<string, unknown>>;
 }
 
 /** POST /api/v1/strategies/preview —— 422 detail={code,message} 由调用方处理 */

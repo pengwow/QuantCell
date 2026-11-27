@@ -21,6 +21,8 @@ interface StartPlanConfirmProps {
   exchange: string | null;
   marketType: string | null;
   params: Record<string, unknown>;
+  /** 按标的参数覆盖（启动预览按当前标的合并；服务端 resolver 唯一出口） */
+  paramsBySymbol?: Record<string, Record<string, unknown>>;
   /** 父组件读取各标的参考价的穿透引用（onOk 启动时随请求提交） */
   refPricesRef: { current: Record<string, number | null> };
 }
@@ -42,6 +44,7 @@ const StartPlanConfirm: React.FC<StartPlanConfirmProps> = ({
   exchange,
   marketType,
   params,
+  paramsBySymbol,
   refPricesRef,
 }) => {
   const { t } = useTranslation();
@@ -94,7 +97,11 @@ const StartPlanConfirm: React.FC<StartPlanConfirmProps> = ({
   }, [symbolsKey, exchange, marketType, refPricesRef]);
 
   const refPrice = current ? prices[current] ?? null : null;
-  const { data: plan, error: planError } = usePricePlan({ strategyName, params, refPrice });
+  const { data: plan, error: planError } = usePricePlan({
+    strategyName, params, refPrice,
+    symbol: current,
+    paramsBySymbol,
+  });
 
   const firstSymbol = symbols[0];
   const firstError = firstSymbol ? errors[firstSymbol] : undefined;

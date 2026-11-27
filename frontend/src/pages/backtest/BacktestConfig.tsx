@@ -41,6 +41,7 @@ import PageContainer from '@/components/PageContainer';
 import { usePageBack } from '@/hooks/usePageBack';
 import { setPageTitle } from '@/utils/pageTitle';
 import SymbolSelect from '@/components/SymbolSelect';
+import SymbolParamOverrides from '../../components/strategyParams/SymbolParamOverrides';
 import {
   buildMarginSpecsPayload,
   pickDirectSymbols,
@@ -95,6 +96,8 @@ interface BacktestFormValues {
   params?: Record<string, unknown>;
   tradingMode?: string;
   capitalMode?: 'per_symbol' | 'shared';
+  // 按标的参数覆盖（提交进 strategy_config.strategy_params_by_symbol；同时进 localStorage 供恢复）
+  params_by_symbol?: Record<string, Record<string, unknown>>;
   // 以品种为键存行值：用下标对齐品种在增删时会串写到别的行，symbol 作 key 从根上避免
   margin_specs?: Record<string, MarginSpecRow>;
 }
@@ -135,6 +138,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  // 按标的参数覆盖（spec 2026-11-28）：{symbol: {param: value}}，提交进 strategy_config.strategy_params_by_symbol
+  const [paramsBySymbol, setParamsBySymbol] = useState<Record<string, Record<string, unknown>>>({});
 
   // LLM 类型判定：与后端 _strategy_kind 同口径（策略 params 里 name=mode 的取值 llm，
   // 见 backend/strategy/service.py:353）。表单值优先（用户可覆盖 mode），未改过时回落到档案默认值
@@ -332,6 +337,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             timeRange: [dayjs(config.startTime), dayjs(config.endTime)],
           });
         }
+        // 按标的覆盖恢复（上次保存的口径；策略未选时 state 先存着，选完策略后覆盖入口即用）
+        if (config.paramsBySymbol && typeof config.paramsBySymbol === 'object') {
+          setParamsBySymbol(config.paramsBySymbol);
+        }
       }
     } catch (error) {
       console.error('[BacktestConfig] Failed to load last backtest config:', error);
@@ -350,6 +359,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         capitalMode: values.capitalMode,
         startTime: values.timeRange?.[0]?.format('YYYY-MM-DD HH:mm:ss'),
         endTime: values.timeRange?.[1]?.format('YYYY-MM-DD HH:mm:ss'),
+        paramsBySymbol: values.params_by_symbol,
         savedAt: new Date().toISOString(),
       };
       localStorage.setItem('lastBacktestConfig', JSON.stringify(config));
@@ -917,7 +927,18 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         return;
       }
 
-      // 保存回测配置到 localStorage
+      // 按标的覆盖：逐标的过滤空值、剔除空覆盖标的（留空=继承，与创建弹窗 cleanStrategyParams 口径一致）
+      const cleanedBySymbol = Object.fromEntries(
+        Object.entries(paramsBySymbol)
+          .map(([sym, raw]) => [
+            sym,
+            Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== '' && v !== null && v !== undefined)),
+          ] as const)
+          .filter(([, ov]) => Object.keys(ov as Record<string, unknown>).length > 0),
+      );
+
+      // 保存回测配置到 localStorage（含按标的覆盖，供下次打开恢复）
+      values.params_by_symbol = cleanedBySymbol;
       saveBacktestConfig(values, symbols);
 
       setProgressVisible(true);
@@ -938,6 +959,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         strategy_config: {
           strategy_name: values.strategy,
           params: strategyParams,
+          strategy_params_by_symbol: cleanedBySymbol,
         },
         backtest_config: {
           symbols: symbols,
@@ -1357,31 +1379,41 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           >
             {selectedStrategy?.params && selectedStrategy.params.length > 0 ? (
               <div className="bc-params-box">
-                <Row gutter={24}>
-                  {selectedStrategy.params.map((param) => (
-                    <Col span={12} key={param.name}>
-                      <Form.Item
-                        name={['params', param.name]}
-                        label={
-                          <span>
-                            {param.name}
-                            {param.description && (
-                              <Tooltip title={param.description}>
-                                <InfoCircleOutlined style={{ marginLeft: 4, color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
-                              </Tooltip>
-                            )}
-                          </span>
-                        }
-                        initialValue={param.default}
-                        valuePropName={
-                          (param.type === 'bool' || param.type === 'boolean') ? 'checked' : 'value'
-                        }
-                      >
-                        {renderParamInput(param)}
-                      </Form.Item>
-                    </Col>
-                  ))}
-                </Row>
+                <Flex vertical gap="small">
+                  <Row gutter={24}>
+                    {selectedStrategy.params.map((param) => (
+                      <Col span={12} key={param.name}>
+                        <Form.Item
+                          name={['params', param.name]}
+                          label={
+                            <span>
+                              {param.name}
+                              {param.description && (
+                                <Tooltip title={param.description}>
+                                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'color-mix(in srgb, var(--tw-color-foreground) 50%, transparent)' }} />
+                                </Tooltip>
+                              )}
+                            </span>
+                          }
+                          initialValue={param.default}
+                          valuePropName={
+                            (param.type === 'bool' || param.type === 'boolean') ? 'checked' : 'value'
+                          }
+                        >
+                          {renderParamInput(param)}
+                        </Form.Item>
+                      </Col>
+                    ))}
+                  </Row>
+                  {/* 按标的参数覆盖入口（spec 2026-11-28）：多标的逐标的差异参数 */}
+                  <SymbolParamOverrides
+                    schema={selectedStrategy.params}
+                    symbols={watchedSymbols ?? []}
+                    value={paramsBySymbol}
+                    onChange={setParamsBySymbol}
+                    baseValues={(watchedParams ?? {}) as Record<string, unknown>}
+                  />
+                </Flex>
               </div>
             ) : (
               <div className="bc-params-empty">

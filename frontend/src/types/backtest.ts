@@ -181,6 +181,7 @@ export interface BacktestDetailData {
   backtest_config: BacktestConfig;
   strategy_config?: {
     params?: Record<string, unknown>;
+    strategy_params_by_symbol?: Record<string, Record<string, unknown>>;
   };
   metrics: BacktestMetric[];
   equity_curve: EquityData[];

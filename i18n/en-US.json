@@ -3978,5 +3978,9 @@
   "pricePlan.kline_load_failed": "Failed to load klines: {{message}}",
   "pricePlan.kline_waiting_price": "Waiting for reference price…",
   "pricePlan.pending_symbol": " (pending)",
-  "pricePlan.start_price_missing_hint": "Failed to fetch reference price for {{symbol}}; start submission will be blocked"
+  "pricePlan.start_price_missing_hint": "Failed to fetch reference price for {{symbol}}; start submission will be blocked",
+  "pricePlan.rl_multi_symbol_hint": "RL strategies currently only run on the first symbol",
+  "strategyParams.override_button": "Overrides",
+  "strategyParams.override_title": "{{symbol}} param overrides",
+  "strategyParams.inherit_hint": "Leave blank to inherit base params"
 }

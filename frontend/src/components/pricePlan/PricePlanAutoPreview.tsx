@@ -22,6 +22,8 @@ interface PricePlanAutoPreviewProps {
   marketType: string | null | undefined;
   /** 表单当前策略参数快照（空值已过滤）；缺省按空对象由后端补策略默认值 */
   params?: Record<string, unknown>;
+  /** 按标的参数覆盖（{symbol: {param: value}}；服务端合并，前端不实现规则） */
+  paramsBySymbol?: Record<string, Record<string, unknown>>;
 }
 
 const PricePlanAutoPreview: React.FC<PricePlanAutoPreviewProps> = ({
@@ -30,6 +32,7 @@ const PricePlanAutoPreview: React.FC<PricePlanAutoPreviewProps> = ({
   exchange,
   marketType,
   params,
+  paramsBySymbol,
 }) => {
   const { t } = useTranslation();
   // 激活 chip 所在标；用户增删标的后被删项自动收敛回首标的
@@ -48,6 +51,8 @@ const PricePlanAutoPreview: React.FC<PricePlanAutoPreviewProps> = ({
     strategyName,
     params: params ?? {},
     refPrice,
+    symbol: current,
+    paramsBySymbol,
   });
 
   return (

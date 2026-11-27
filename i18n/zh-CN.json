@@ -3978,5 +3978,9 @@
   "pricePlan.kline_load_failed": "K线加载失败：{{message}}",
   "pricePlan.kline_waiting_price": "等待参考价…",
   "pricePlan.pending_symbol": "（未固化）",
-  "pricePlan.start_price_missing_hint": "{{symbol}} 参考价获取失败，将阻断启动提交"
+  "pricePlan.start_price_missing_hint": "{{symbol}} 参考价获取失败，将阻断启动提交",
+  "pricePlan.rl_multi_symbol_hint": "RL 策略暂只对首个标的生效",
+  "strategyParams.override_button": "覆盖参数",
+  "strategyParams.override_title": "{{symbol}} 参数覆盖",
+  "strategyParams.inherit_hint": "留空 = 继承公共参数"
 }

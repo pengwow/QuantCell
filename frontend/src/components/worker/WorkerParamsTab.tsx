@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Card, Row, Col, Descriptions, Space, Spin, Tooltip } from 'antd';
+import { Card, Row, Col, Descriptions, Space, Spin, Tooltip, Typography } from 'antd';
 import type { Worker as WorkerType, StrategyParameter } from '../../types/worker';
 import { CodeOutlined } from '@ant-design/icons';
 import { getStrategyParameters } from '../../api/workerApi';
@@ -17,6 +17,11 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
 
   // 从 config 中提取策略参数（如果存在）
   const config: Record<string, unknown> = worker.config ?? {};
+
+  // 按标的参数覆盖（只读展示，spec 2026-11-28 §7）
+  const bySymbol = ((worker?.config as Record<string, unknown> | undefined)?.strategy_params_by_symbol ??
+    {}) as Record<string, Record<string, unknown>>;
+  const overrideSymbols = Object.keys(bySymbol);
 
   // 动态策略参数
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
@@ -199,6 +204,19 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
           </div>
         )}
       </Card>
+
+      {/* 按标的参数覆盖（只读展示，spec 2026-11-28 §7） */}
+      {overrideSymbols.length > 0 && (
+        <Card size="small" title={t('strategyParams.override_button')}>
+          <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
+            {overrideSymbols.map((sym) => (
+              <Typography.Text key={sym} type="secondary" style={{ fontSize: 12 }}>
+                {sym}：{JSON.stringify(bySymbol[sym])}
+              </Typography.Text>
+            ))}
+          </Space>
+        </Card>
+      )}
     </div>
   );
 };

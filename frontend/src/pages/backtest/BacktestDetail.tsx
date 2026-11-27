@@ -181,6 +181,8 @@ interface BacktestResponse {
     margin_specs?: EffectiveMarginSpec[];
     // 创建回测时的策略参数（后端入库时随 backtest_config 保存；旧任务可能缺失）
     strategy_params?: Record<string, unknown>;
+    // 创建回测时的按标的策略参数覆盖（后端入库随 backtest_config 保存；旧任务缺失）
+    strategy_params_by_symbol?: Record<string, Record<string, unknown>>;
     [key: string]: unknown;
   };
   strategy_config: Record<string, unknown>;
@@ -621,6 +623,15 @@ const BacktestDetail = () => {
               </Space>
             )}
           </div>
+          {/* 按标的参数覆盖展示（spec 2026-11-28 §5.2；无覆盖项时不渲染） */}
+          {Object.keys(backtestConfig.strategy_params_by_symbol || {}).length > 0 && (
+            <div className="bt-subhead" style={{ marginTop: 12 }}>{t('strategyParams.override_button')}</div>
+          )}
+          {Object.entries(backtestConfig.strategy_params_by_symbol || {}).map(([sym, ov]) => (
+            <div key={sym} className="bt-kv-row" style={{ fontSize: 12 }}>
+              {sym}：{JSON.stringify(ov)}
+            </div>
+          ))}
           </Flex>
         </Card>
 

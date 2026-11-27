@@ -21,6 +21,8 @@ import {
   App,
   Card,
   Spin,
+  Alert,
+  Flex,
 } from 'antd';
 import {
   PlusOutlined,
@@ -43,86 +45,12 @@ import RiskControlForm, {
 } from './RiskControlForm';
 import type { CreateWorkerRequest, StrategyInfo } from '../../types/worker';
 import type { StrategyParam } from '../../types/backtest';
+import { renderStrategyParamInput } from '../strategyParams/paramInput';
+import SymbolParamOverrides from '../strategyParams/SymbolParamOverrides';
 import SymbolSelect from '@/components/SymbolSelect';
 
 const { Option } = Select;
 const { TextArea } = Input;
-
-// 策略参数 schema 来自后端 /strategy/list 的 params 元素（name/type/default/description/options，
-// 由 AST 解析 + 数据库覆盖合成）。受控渲染：值统一收在 strategyParams state，提交前过滤空值。
-const renderParamInput = (
-  param: StrategyParam,
-  t: ReturnType<typeof useTranslation>['t'],
-  value: unknown,
-  onChange: (v: unknown) => void,
-) => {
-  const type = (param.type || 'string').toLowerCase();
-  const placeholder = param.description || t('please_input_value');
-
-  switch (type) {
-    case 'int':
-      return (
-        <InputNumber
-          value={value as number | undefined}
-          onChange={(v) => onChange(v ?? undefined)}
-          precision={0}
-          style={{ width: '100%' }}
-          placeholder={placeholder}
-        />
-      );
-    case 'float':
-      return (
-        <InputNumber
-          value={value as number | undefined}
-          onChange={(v) => onChange(v ?? undefined)}
-          step={0.01}
-          style={{ width: '100%' }}
-          placeholder={placeholder}
-        />
-      );
-    case 'bool':
-      return (
-        <Select
-          value={value as boolean | undefined}
-          onChange={onChange}
-          allowClear
-          placeholder={t('please_select')}
-          options={[
-            { value: true, label: t('yes') },
-            { value: false, label: t('no') },
-          ]}
-        />
-      );
-    case 'select':
-      return (
-        <Select
-          value={value as string | undefined}
-          onChange={onChange}
-          allowClear
-          placeholder={t('please_select')}
-          options={(param.options ?? []).map((opt) => ({ value: opt, label: opt }))}
-        />
-      );
-    case 'json':
-      return (
-        <TextArea
-          value={value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value)}
-          onChange={(e) => onChange(e.target.value)}
-          rows={2}
-          placeholder={t('worker_param_placeholder_json')}
-        />
-      );
-    case 'string':
-    default:
-      return (
-        <Input
-          value={value == null ? '' : String(value)}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
-      );
-  }
-};
 
 // 提交与预览共用同一套空值过滤口径：空字符串 / null / undefined 一律不提交
 const cleanStrategyParams = (params: Record<string, unknown>): Record<string, unknown> =>
@@ -186,6 +114,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   // 策略参数：defs 是 schema（渲染字段），values 是表单当前值（初值 = schema default，用户可改可清）
   const [strategyParamDefs, setStrategyParamDefs] = useState<StrategyParam[]>([]);
   const [strategyParams, setStrategyParams] = useState<Record<string, unknown>>({});
+  // 按标的参数覆盖（spec 2026-11-28）：{symbol: {param: value}}，提交前逐标的过滤空值
+  const [paramsBySymbol, setParamsBySymbol] = useState<Record<string, Record<string, unknown>>>({});
   const [loadingParams, setLoadingParams] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
 
@@ -203,6 +133,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const watchedMarketType = Form.useWatch('market_type', form) as string | undefined;
   const pricePlanStrategy =
     strategies.find((s) => s.id === selectedStrategyId && s.has_price_plan) ?? null;
+  // 当前选中策略（RL 判定用：strategy_type === 'rl' 且多标的时提示只跑首标的）
+  const selectedStrategyInfo = strategies.find((s) => s.id === selectedStrategyId) ?? null;
   // 预览用标的统一大写去重（与提交口径一致，SymbolSelect 的自选组已展开）
   const previewSymbols = Array.from(new Set((watchedSymbols ?? []).map((s) => s.toUpperCase())));
 
@@ -366,6 +298,16 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         requestData.params = cleanedParams;
       }
 
+      // 按标的覆盖：逐标的过滤空值、剔除空覆盖标的（留空=继承，与后端 None/'' 口径一致）
+      const cleanedBySymbol = Object.fromEntries(
+        Object.entries(paramsBySymbol)
+          .map(([sym, raw]) => [sym, cleanStrategyParams(raw)] as const)
+          .filter(([, ov]) => Object.keys(ov).length > 0),
+      );
+      if (Object.keys(cleanedBySymbol).length > 0) {
+        requestData.params_by_symbol = cleanedBySymbol;
+      }
+
       const result = await createWorker(requestData);
 
       if (result) {
@@ -385,6 +327,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         nameTouchedByUserRef.current = false;
         setStrategyParamDefs([]);
         setStrategyParams({});
+        setParamsBySymbol({});
         setSelectedStrategyId(null);
         onSuccess?.();
         onCancel();
@@ -403,6 +346,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     nameTouchedByUserRef.current = false;
     setStrategyParamDefs([]);
     setStrategyParams({});
+    setParamsBySymbol({});
     setSelectedStrategyId(null);
     onCancel();
   };
@@ -485,6 +429,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                     setSelectedStrategyId(null);
                     setStrategyParamDefs([]);
                     setStrategyParams({});
+                    setParamsBySymbol({});
                     return;
                   }
                   setSelectedStrategyId(value);
@@ -596,28 +541,42 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
               className="qc-card"
               style={{ background: 'var(--qc-surface-muted)', boxShadow: 'none' }}
             >
-              <Row gutter={[12, 12]}>
-                {strategyParamDefs.map((param) => (
-                  <Col span={12} key={param.name}>
-                    <Form.Item
-                      label={
-                        <Space>
-                          <span>{param.name}</span>
-                          {param.description && (
-                            <Tooltip title={param.description}>
-                              <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
-                            </Tooltip>
-                          )}
-                        </Space>
-                      }
-                    >
-                      {renderParamInput(param, t, strategyParams[param.name], (v) =>
-                        setStrategyParams((prev) => ({ ...prev, [param.name]: v })),
-                      )}
-                    </Form.Item>
-                  </Col>
-                ))}
-              </Row>
+              <Flex vertical gap="small">
+                <Row gutter={[12, 12]}>
+                  {strategyParamDefs.map((param) => (
+                    <Col span={12} key={param.name}>
+                      <Form.Item
+                        label={
+                          <Space>
+                            <span>{param.name}</span>
+                            {param.description && (
+                              <Tooltip title={param.description}>
+                                <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
+                              </Tooltip>
+                            )}
+                          </Space>
+                        }
+                      >
+                        {renderStrategyParamInput(param, t, strategyParams[param.name], (v) =>
+                          setStrategyParams((prev) => ({ ...prev, [param.name]: v })),
+                        )}
+                      </Form.Item>
+                    </Col>
+                  ))}
+                </Row>
+                {/* 按标的参数覆盖入口（spec 2026-11-28）：多标的时每个标的旁「覆盖参数」Popover */}
+                <SymbolParamOverrides
+                  schema={strategyParamDefs}
+                  symbols={previewSymbols}
+                  value={paramsBySymbol}
+                  onChange={setParamsBySymbol}
+                  baseValues={previewParams}
+                />
+                {/* RL 多标的边界：本轮只跑首标的，UI 显式提示（spec D4） */}
+                {selectedStrategyInfo?.strategy_type === 'rl' && previewSymbols.length > 1 && (
+                  <Alert type="info" showIcon message={t('pricePlan.rl_multi_symbol_hint')} />
+                )}
+              </Flex>
             </Card>
           </>
         )}
@@ -786,6 +745,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             exchange={watchedExchange}
             marketType={watchedMarketType}
             params={previewParams}
+            paramsBySymbol={paramsBySymbol}
           />
         )}
 

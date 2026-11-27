@@ -650,6 +650,23 @@ export const updateStrategyParameters = (
 };
 
 /**
+ * 获取按标的策略参数覆盖（config.strategy_params_by_symbol，键为 BASE/QUOTE 形态）
+ */
+export const getWorkerParamOverrides = (workerId: number): Promise<Record<string, Record<string, unknown>>> => {
+  return apiRequest.get(`/workers/${workerId}/strategy/param-overrides`);
+};
+
+/**
+ * 更新按标的策略参数覆盖（整体替换）
+ */
+export const updateWorkerParamOverrides = (
+  workerId: number,
+  overrides: Record<string, Record<string, unknown>>,
+): Promise<void> => {
+  return apiRequest.put(`/workers/${workerId}/strategy/param-overrides`, { overrides });
+};
+
+/**
  * 获取 Worker 人工风控配置（未配置时后端返回 null）
  * @param workerId Worker ID
  */

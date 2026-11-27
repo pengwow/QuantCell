@@ -149,6 +149,8 @@ export interface CreateWorkerRequest {
   config?: Record<string, unknown>;
   /** 创建时的策略参数覆盖（空值字段由调用方过滤掉；合并序：策略行参数 < worker params） */
   params?: Record<string, unknown>;
+  /** 按标的参数覆盖（键为 BASE/QUOTE 形态）；落 config.strategy_params_by_symbol */
+  params_by_symbol?: Record<string, Record<string, unknown>>;
 }
 
 // 更新Worker请求

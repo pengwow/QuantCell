@@ -5,7 +5,7 @@
  * 允许修改配置、参数等 - 与创建页面保持一致的字段和布局
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Modal,
   Form,
@@ -22,6 +22,7 @@ import {
   Card,
   Spin,
   Typography,
+  Flex,
 } from 'antd';
 import {
   EditOutlined,
@@ -32,7 +33,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, configApi } from '../../api';
-import { getRiskControl, getStrategyParameters, updateStrategyParameters, upsertRiskControl } from '../../api/workerApi';
+import { getRiskControl, getStrategyParameters, getWorkerParamOverrides, updateStrategyParameters, updateWorkerParamOverrides, upsertRiskControl } from '../../api/workerApi';
 import RiskControlForm, {
   EMPTY_RISK_VALUES,
   RISK_FORM_FIELDS,
@@ -42,6 +43,7 @@ import RiskControlForm, {
   type RiskFormValues,
 } from './RiskControlForm';
 import type { StrategyInfo, StrategyParameter, TradingConfig, UpdateWorkerRequest, Worker as WorkerModel } from '../../types/worker';
+import SymbolParamOverrides from '../strategyParams/SymbolParamOverrides';
 import SymbolSelect from '@/components/SymbolSelect';
 
 const { Option } = Select;
@@ -161,6 +163,21 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   // 策略参数
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
   const [loadingParams, setLoadingParams] = useState(false);
+
+  // 按标的参数覆盖（spec 2026-11-28）：{symbol: {param: value}}，编辑保存走 param-overrides 端点
+  const [paramsBySymbol, setParamsBySymbol] = useState<Record<string, Record<string, unknown>>>({});
+  // 覆盖入口标的列表：与创建弹窗同口径，取表单实时选中的标的（大写去重）
+  const watchedSymbols = Form.useWatch('symbol', form) as string[] | undefined;
+  const symbols = Array.from(new Set((watchedSymbols ?? []).map((s) => s.toUpperCase())));
+  // 公共参数表单当前值：覆盖 Popover 里 string/json 占位显示「继承自公共值」
+  const watchedAll = Form.useWatch([], form) as Record<string, unknown> | undefined;
+  const baseValues = useMemo(() => {
+    const out: Record<string, unknown> = {};
+    for (const p of strategyParams) {
+      out[p.param_name] = watchedAll?.[`param_${p.param_name}`] ?? p.param_value ?? p.default_value;
+    }
+    return out;
+  }, [strategyParams, watchedAll]);
 
   // 人工风控：弹窗打开时 GET 回填，这份快照用于判断用户是否改过风控字段（改过才走确认/PUT）
   const riskSnapshotRef = useRef<RiskFormValues>(EMPTY_RISK_VALUES);
@@ -392,6 +409,13 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       const params = await getStrategyParameters(workerId);
       setStrategyParams(params);
 
+      // 拉取按标的覆盖并回填（编辑态：覆盖项经 SymbolParamOverrides 渲染）
+      getWorkerParamOverrides(workerId)
+        .then(setParamsBySymbol)
+        .catch((error) => {
+          console.error('获取按标的参数覆盖失败:', error);
+        });
+
       // 将参数默认值设置到表单中
       const paramsFormValue: Record<string, unknown> = {};
       params.forEach((p) => {
@@ -542,6 +566,18 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         if (Object.keys(parameters).length > 0) {
           await updateStrategyParameters(worker.id, { parameters });
         }
+        // 按标的覆盖整体替换（留空=继承；与创建弹窗同口径的逐标的空值过滤）
+        const cleanedBySymbol = Object.fromEntries(
+          Object.entries(paramsBySymbol)
+            .map(([sym, raw]) => [
+              sym,
+              Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== '' && v !== null && v !== undefined)),
+            ] as const)
+            .filter(([, ov]) => Object.keys(ov as Record<string, unknown>).length > 0),
+        );
+        if (Object.keys(cleanedBySymbol).length) {
+          await updateWorkerParamOverrides(worker.id, cleanedBySymbol);
+        }
         // 人工风控：仅在用户改动过风控字段时提交；live 运行中需逐项确认后再应用（PUT 不阻断主流程）
         const riskValues = form.getFieldsValue([...RISK_FORM_FIELDS]) as Partial<RiskFormValues>;
         if (!sameRiskValues(riskValues, riskSnapshotRef.current)) {
@@ -577,6 +613,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const handleCancel = () => {
     form.resetFields();
     setStrategyParams([]);
+    setParamsBySymbol({});
     onCancel();
   };
 
@@ -723,29 +760,45 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
               </Space>
             </Divider>
             <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
-              <Row gutter={[12, 12]}>
-                {strategyParams.map((param) => (
-                  <Col span={12} key={param.param_name}>
-                    <Form.Item
-                      name={`param_${param.param_name}`}
-                      label={
-                        <Space>
-                          <span>{param.param_name}</span>
-                          {param.description && (
-                            <Tooltip title={param.description}>
-                              <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
-                            </Tooltip>
-                          )}
-                        </Space>
-                      }
-                      tooltip={param.description}
-                      rules={param.required ? [{ required: true, message: t('worker_please_input_param', { name: param.param_name }) }] : []}
-                    >
-                      {renderParamInput(param, t)}
-                    </Form.Item>
-                  </Col>
-                ))}
-              </Row>
+              <Flex vertical gap="small">
+                <Row gutter={[12, 12]}>
+                  {strategyParams.map((param) => (
+                    <Col span={12} key={param.param_name}>
+                      <Form.Item
+                        name={`param_${param.param_name}`}
+                        label={
+                          <Space>
+                            <span>{param.param_name}</span>
+                            {param.description && (
+                              <Tooltip title={param.description}>
+                                <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
+                              </Tooltip>
+                            )}
+                          </Space>
+                        }
+                        tooltip={param.description}
+                        rules={param.required ? [{ required: true, message: t('worker_please_input_param', { name: param.param_name }) }] : []}
+                      >
+                        {renderParamInput(param, t)}
+                      </Form.Item>
+                    </Col>
+                  ))}
+                </Row>
+                {/* 按标的参数覆盖入口（spec 2026-11-28）：保存走 param-overrides 端点 */}
+                <SymbolParamOverrides
+                  schema={strategyParams.map((p) => ({
+                    name: p.param_name,
+                    type: p.param_type,
+                    default: p.default_value ?? p.param_value,
+                    description: p.description ?? '',
+                    required: !!p.required,
+                  }))}
+                  symbols={symbols}
+                  value={paramsBySymbol}
+                  onChange={setParamsBySymbol}
+                  baseValues={baseValues}
+                />
+              </Flex>
             </Card>
           </>
         )}

@@ -285,6 +285,9 @@ const Worker = () => {
             exchange={worker.trading_config?.exchange ?? null}
             marketType={worker.trading_config?.market_type ?? null}
             params={workerParams}
+            paramsBySymbol={
+              (worker.config?.strategy_params_by_symbol ?? {}) as Record<string, Record<string, unknown>>
+            }
             refPricesRef={refPricesRef}
           />
         ),
