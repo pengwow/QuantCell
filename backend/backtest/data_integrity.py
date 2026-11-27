@@ -250,20 +250,23 @@ class DataIntegrityChecker:
         minutes = self.INTERVAL_MINUTES.get(interval, 1)
         full_range = pd.date_range(start=start_time, end=end_time, freq=f"{minutes}min")
 
-        # 获取现有数据的时间戳（转换为毫秒时间戳以便比较）
+        # 获取现有数据的时间戳（DB/Parquet 落盘口径均为纳秒整型）
         existing_timestamps = set(existing_data["timestamp"])
 
-        # 将 pd.date_range 生成的时间戳转换为毫秒时间戳
-        full_range_ms = set(int(ts.timestamp() * 1000) for ts in full_range)
+        # 满量程网格同样换算为纳秒再差集——此前用毫秒（*1000），与纳秒数据永不相交，
+        # 导致 is_complete 恒 False、"下载完成仍报缺全部数据"。
+        # 注意须经 to_pydatetime() 转换：pd.Timestamp.timestamp() 把 naive 值按 UTC 取秒，
+        # 与 DB 侧 datetime.timestamp()（本地时区）的纳秒口径相差时区偏移，差集又会永不相交
+        full_range_ns = set(int(ts.to_pydatetime().timestamp() * 1_000_000_000) for ts in full_range)
 
         # 找出缺失的时间点
-        missing_timestamps_ms = full_range_ms - existing_timestamps
+        missing_timestamps_ns = full_range_ns - existing_timestamps
 
-        if not missing_timestamps_ms:
+        if not missing_timestamps_ns:
             return []
 
-        # 将毫秒时间戳转换回 datetime 对象
-        missing_timestamps = [datetime.fromtimestamp(ts / 1000) for ts in sorted(missing_timestamps_ms)]
+        # 将纳秒时间戳转换回 datetime 对象
+        missing_timestamps = [datetime.fromtimestamp(ts / 1_000_000_000) for ts in sorted(missing_timestamps_ns)]
 
         # 合并连续的缺失时间点为时间段
         missing_ranges = self._merge_continuous_timestamps(missing_timestamps, interval)
