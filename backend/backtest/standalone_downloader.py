@@ -13,8 +13,9 @@ import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from utils.data_utils import _find_parquet_file, _infer_ts_scale
 from utils.logger import LogType, get_logger
-from utils.parquet_utils import append_to_parquet
+from utils.parquet_utils import append_to_parquet, load_from_parquet
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -225,60 +226,37 @@ class StandaloneDataDownloader:
 
     def _check_data_exists(self, symbol: str, interval: str, date: str, crypto_type: str) -> bool:
         """
-        检查指定日期的数据是否已存在于数据库中
+        检查指定日期的数据是否已存在于回测实际读取的 source Parquet 文件
+
+        skip 的语义是"目标存储已有该日数据"——目标存储即回测读的单文件
+        parquet（与完整性检查/回测加载同源）。此前查 DB 且用毫秒整型过滤
+        纳秒 BIGINT 列恒为 False（重复下载）；若改回查 DB，"DB 有但 parquet
+        缺"的存量日期会被永远 skip，检查永远报缺。
 
         参数：
             symbol: 交易对
             interval: 时间周期
             date: 日期字符串 (YYYY-MM-DD)
-            crypto_type: 交易类型
-
-        返回：
-            bool: 数据是否已存在
+            crypto_type: 交易类型（spot/um/cm）
         """
-        from datetime import datetime
-
-        from collector.db.database import SessionLocal, init_database_config
-        from collector.db.models import CryptoFutureKline, CryptoSpotKline
-
         try:
-            # 初始化数据库配置
-            init_database_config()
-
-            # 重新导入引擎
-            from collector.db.database import engine as db_engine
-
-            if db_engine is None:
+            market_dir = "spot" if crypto_type == "spot" else "future"
+            file_path = _find_parquet_file(symbol, interval, market_dir)
+            if not file_path.exists():
                 return False
 
-            # 创建会话
-            db = SessionLocal(bind=db_engine)
+            df = load_from_parquet(file_path, columns=["timestamp"])
+            if df.empty:
+                return False
 
-            try:
-                # 选择模型
-                Model = CryptoSpotKline if crypto_type == "spot" else CryptoFutureKline
+            # 按文件实际单位换算日期边界（存量文件 ns/us 不一，由量级推断）
+            scale = _infer_ts_scale(float(df["timestamp"].max()))
+            date_dt = datetime.strptime(date, "%Y-%m-%d")
+            start_ts = int(date_dt.timestamp() * scale)
+            end_ts = int((date_dt + timedelta(days=1)).timestamp() * scale)
 
-                # 计算日期的时间戳范围（毫秒）
-                date_dt = datetime.strptime(date, "%Y-%m-%d")
-                start_ts = int(date_dt.timestamp() * 1000)
-                end_ts = int((date_dt + timedelta(days=1)).timestamp() * 1000)
-
-                # 查询该日期是否有数据
-                count = (
-                    db.query(Model)
-                    .filter(
-                        Model.symbol == symbol,
-                        Model.interval == interval,
-                        Model.timestamp >= str(start_ts),
-                        Model.timestamp < str(end_ts),
-                    )
-                    .count()
-                )
-
-                return count > 0
-
-            finally:
-                db.close()
+            count = int(((df["timestamp"] >= start_ts) & (df["timestamp"] < end_ts)).sum())
+            return count > 0
 
         except Exception as e:
             logger.error(f"检查数据存在性失败: {e}")
@@ -332,7 +310,9 @@ class StandaloneDataDownloader:
                         {
                             "symbol": symbol,
                             "interval": interval,
-                            "timestamp": str(timestamp_ms),
+                            # P2-14 起 timestamp 列为 BIGINT 纳秒整型；open_time 是毫秒，
+                            # 落库统一转纳秒（此前写 str(毫秒) 造成口径错配、按时间查询必空）
+                            "timestamp": timestamp_ms * 1_000_000,
                             # OHLC DECIMAL 列：写入统一 decimal_or_zero，与 volume 同口径（P2-11）
                             "open": decimal_or_zero(row["open"]),
                             "high": decimal_or_zero(row["high"]),
