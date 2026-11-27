@@ -37,6 +37,10 @@ backend/collector/README.md
 backend/data/system.db
 backend/backtest/results/*.json
 backend/strategies/*
+# 内置网格/马丁策略随代码分发（价格计划协议消费方，见 strategy/price_plan.py），其余仍为本地自建策略
+!backend/strategies/__init__.py
+!backend/strategies/grid.py
+!backend/strategies/martingale.py
 backend/.trash/
 frontend/.trash/
 backend/.DS_Store

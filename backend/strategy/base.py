@@ -102,7 +102,15 @@ class StrategyContext:
 
 
 class BaseStrategy(ABC):
-    """所有 8 策略模板继承此类。"""
+    """所有 8 策略模板继承此类。
+
+    可选协议（spec 3.2 通用约定）：
+    - 类可定义 price_plan（classmethod/staticmethod），签名 (params: dict, ref_price: float) -> PricePlan；
+    - 定义了该方法的策略自动获得全部「价格计划」入口（编辑器 tab / 启动确认 / 创建自检 / worker 页）；
+    - 未定义则 has_price_plan=false，入口自动隐藏，策略行为零影响；
+    - 约束：纯函数、不做 IO、不请求行情；target_position 语义 = Action（正建/加仓，负减仓）；
+    - on_start 固化计划时必须复用同一 price_plan 实现（或其内部纯函数），禁止复制公式。
+    """
 
     def __init__(self, config: StrategyConfig):
         self.config = config
