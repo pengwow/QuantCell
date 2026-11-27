@@ -69,3 +69,31 @@ async def get_funding_history(
     except Exception as exc:
         logger.warning(f"资金费率历史回源失败 symbol={symbol} limit={limit}: {exc}")
         raise HTTPException(status_code=502, detail=f"获取资金费率历史失败: {exc}") from exc
+
+
+@router.get(
+    "/price",
+    summary="获取实时最新价",
+    description=(
+        "回源 binance 公共 ticker（spot/margin→api.binance.com，futures→fapi.binance.com）"
+        "取实时最新价，供价格计划参考价自动预览。30s 微缓存只缓存成功结果；"
+        "交易所不可达返回 502 如实暴露，不做本地数据降级。"
+    ),
+)
+async def get_latest_price(
+    symbol: str = Query(..., min_length=4, max_length=30, description="交易对，如 BTCUSDT 或 BTC/USDT"),
+    market_type: str = Query("spot", description="市场类型：spot / margin / futures"),
+    exchange: str = Query("binance", description="交易所，当前仅支持 binance"),
+) -> dict:
+    try:
+        data = await service.fetch_latest_price(symbol, market_type, exchange)
+    except service.UnsupportedExchangeError as exc:
+        # 未支持的交易所/市场类型是调用方参数问题，400 让前端如实展示
+        raise HTTPException(status_code=400, detail={"code": "unsupported_exchange", "message": str(exc)}) from exc
+    except Exception as exc:
+        # 交易所不可达就是策略上线前要暴露的问题，502 如实上报，不做本地降级
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "exchange_unreachable", "message": f"获取实时价格失败: {exc}"},
+        ) from exc
+    return _ok(data)

@@ -140,3 +140,50 @@ def test_fetch_latest_price_unsupported_exchange():
 def test_fetch_latest_price_unsupported_market_type():
     with pytest.raises(service.UnsupportedExchangeError):
         asyncio.run(service.fetch_latest_price("BTCUSDT", "options", "binance"))
+
+
+# ---------------------------------------------------------------------------
+# 路由层 GET /api/v1/marketdata/price（/price 同文件前缀 router 挂在 /api/v1/marketdata）
+# ---------------------------------------------------------------------------
+
+
+def test_price_endpoint_returns_envelope(monkeypatch):
+    async def fake_fetch(symbol, market_type="spot", exchange="binance"):
+        return {"symbol": symbol.upper(), "price": 100.5, "ts": "2026-11-27T00:00:00.000000000+00:00"}
+
+    monkeypatch.setattr(service, "fetch_latest_price", fake_fetch)
+    resp = _client().get(
+        "/api/v1/marketdata/price",
+        params={"symbol": "BTCUSDT", "market_type": "futures", "exchange": "binance"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    assert body["data"]["price"] == 100.5
+
+
+def test_price_endpoint_maps_unreachable_to_502(monkeypatch):
+    """交易所不可达 → 502 + detail.code=exchange_unreachable（如实暴露，无 DB 降级）"""
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("connect timeout")
+
+    monkeypatch.setattr(service, "fetch_latest_price", boom)
+    resp = _client().get("/api/v1/marketdata/price", params={"symbol": "BTCUSDT"})
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "exchange_unreachable"
+
+
+def test_price_endpoint_maps_unsupported_to_400(monkeypatch):
+    """未支持的交易所 → 400 + detail.code=unsupported_exchange"""
+
+    async def bad_exchange(*args, **kwargs):
+        raise service.UnsupportedExchangeError("暂不支持交易所 okx 的实时行情")
+
+    monkeypatch.setattr(service, "fetch_latest_price", bad_exchange)
+    resp = _client().get("/api/v1/marketdata/price", params={"symbol": "BTCUSDT", "exchange": "okx"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "unsupported_exchange"

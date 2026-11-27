@@ -88,6 +88,7 @@ TERM_RULES: dict[str, dict] = {
             r"MARGIN\s*=\s*[\"']",  # 交易所协议枚举值 MARGIN = "margin"
             r"==\s*[\"']margin[\"']|return\s+[\"']margin[\"']",  # 杠杆账户类型值域判断/透传（ccxt defaultType）
             r"\bspot\s*/\s*(?:future\(s\)?|futures)\s*/\s*margin\b",  # AccountType 三档枚举的文档串（杠杆账户语境），
+            r"\bspot\s*/\s*margin\b",  # market_type 值域组合文档串（spot/margin 共用现货 ticker / spot / margin / futures）
             r"AccountType\s*\.|account_type|accountType",  # 账户类型：account_type / 拼接词 BinanceAccountType.MARGIN
             r"trading_mode|tradingMode|TradingMode",  # trading_mode 值域含 "margin"，键本身合法
             r"margin_type|marginType",  # set_margin_type 是交易所接口命名
