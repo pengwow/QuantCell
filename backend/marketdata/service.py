@@ -105,6 +105,18 @@ _TICKER_URLS: dict[str, str] = {
     "futures": FUTURES_TICKER_URL,
 }
 
+# K线端点映射：margin 复用现货 K 线（与 ticker 同理），futures 走 U 本位合约 API
+SPOT_KLINES_URL = "https://api.binance.com/api/v3/klines"
+FUTURES_KLINES_URL = "https://fapi.binance.com/fapi/v1/klines"
+_KLINES_URLS: dict[str, str] = {
+    "spot": SPOT_KLINES_URL,
+    "margin": SPOT_KLINES_URL,
+    "futures": FUTURES_KLINES_URL,
+}
+_KLINES_INTERVALS = ("1m", "5m", "15m", "1h", "4h", "1d")
+_KLINES_DEFAULT_LIMIT = 120
+_KLINES_MAX_LIMIT = 500
+
 # 30s 微缓存：只缓存成功结果，失败不缓存（重试继续打交易所如实暴露问题）。
 # ponytail: 进程内 dict 无淘汰——调用方是人工打开弹窗时的预览，key 组合
 # （exchange|symbol|market_type）有限不会膨胀；将来若变高频再换 LRU。
@@ -158,3 +170,51 @@ async def fetch_latest_price(
     }
     _PRICE_CACHE[cache_key] = (now + _PRICE_CACHE_TTL_SECONDS, result)
     return dict(result)
+
+
+async def fetch_recent_klines(
+    symbol: str,
+    market_type: str = "spot",
+    exchange: str = "binance",
+    interval: str = "15m",
+    limit: int | None = None,
+) -> list[dict]:
+    """回源币安公共 REST 拉最近 K 线序列（价格计划真实K线预览用，spec §1）。
+
+    与 fetch_latest_price 同构但不写缓存：K 线是历史序列且预览随档位/周期切换
+    重拉，缓存意义有限（ponytail 决策，升级路径是同款 30s 微缓存）。
+    limit 缺省 120、clamp 1-500；interval 白名单 _KLINES_INTERVALS，
+    越界 ValueError 由路由层转 422。失败上抛原始异常由路由层转 502。
+    """
+    if exchange != "binance":
+        raise UnsupportedExchangeError(f"暂不支持交易所 {exchange} 的K线行情")
+    url = _KLINES_URLS.get(market_type)
+    if url is None:
+        raise UnsupportedExchangeError(f"暂不支持市场类型 {market_type} 的K线行情")
+    if interval not in _KLINES_INTERVALS:
+        raise ValueError(f"不支持的K线周期: {interval}")
+    lim = _KLINES_DEFAULT_LIMIT if limit is None else max(1, min(_KLINES_MAX_LIMIT, int(limit)))
+
+    clean_symbol = symbol.replace("/", "").replace(":", "").upper()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            url,
+            params={"symbol": clean_symbol, "interval": interval, "limit": lim},
+            proxy=resolve_proxy(),
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            resp.raise_for_status()
+            payload = await resp.json()
+
+    # binance 原生行 [open_time, open, high, low, close, volume, ...]，已按时间升序
+    return [
+        {
+            "ts": int(row[0]),
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume": float(row[5]),
+        }
+        for row in payload
+    ]

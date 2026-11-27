@@ -275,6 +275,7 @@ def test_do_start_strategy_routes_rule_modes(monkeypatch, tmp_path):
             trading_mode=mode,
             strategy_id=1,
             get_trading_config_dict=lambda: {"trading_mode": mode, "timeframe": "1h", "market_type": "swap"},
+            get_config_dict=lambda: {},  # L466 策略参数覆盖链路：空配置走公式缺省推导
             get_symbols=lambda: ["BTCUSDT"],
             strategy=SimpleNamespace(
                 strategy_type="rule",

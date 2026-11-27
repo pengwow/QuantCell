@@ -424,15 +424,21 @@ def _plan_runtime_progress(plan: dict, snapshot: dict | None) -> dict:
     summary="worker 固化价格计划（含运行态增量）",
 )
 @handle_worker_exceptions("获取Worker价格计划")
-async def get_worker_plan(worker_id: int):
+async def get_worker_plan(
+    worker_id: int,
+    symbol: str | None = Query(None, description="交易对过滤（多标的分散执行，缺省返回第一个标的）"),
+):
     """返回启动时固化的执行中计划（spec §4.A：改参数不影响运行中 worker）。
 
-    计划在启动时按 ref_price 固化进 Worker.config['price_plan']（DB 即事实源）；
-    无固化记录或计划为空时统一返回 pending。
+    计划在启动时按标的多份固化进 Worker.config['price_plan']（DB 即事实源）；
+    无固化记录或计划为空时统一返回 pending。symbols 返回全部标的的固化状态
+    （[{symbol, state}]，详情页 chips 用）；v1 旧结构（单份）对齐读取口径。
     """
-    stored = crud.get_worker_price_plan(str(worker_id))
+    stored, symbols_states = crud.get_worker_price_plan(str(worker_id), symbol)
     if not stored or not stored.get("plan"):
-        return schemas.ApiResponse(code=0, message="success", data={"state": "pending", "plan": None})
+        return schemas.ApiResponse(
+            code=0, message="success", data={"state": "pending", "plan": None, "symbols": symbols_states}
+        )
     # 运行态快照与 /{worker_id}/state 的 runtime 字段同源（strategy_registry 进程内缓存）
     runtime = strategy_registry.get(worker_id)
     snapshot = runtime.to_dict() if runtime is not None else None
@@ -441,9 +447,11 @@ async def get_worker_plan(worker_id: int):
         message="success",
         data={
             "state": "fixed",
+            "symbol": stored.get("symbol"),
             "ref_price": stored["ref_price"],
             **_plan_runtime_progress(stored["plan"], snapshot),
             "plan": stored["plan"],
+            "symbols": symbols_states,
         },
     )
 
@@ -743,7 +751,8 @@ async def start_worker(
     if state and state.status in ("running", "starting"):
         raise WorkerAlreadyRunningException(worker_id)
 
-    ref_price = body.ref_price if body else None
+    # ref_prices（多标的启动弹窗逐标的采集）优先，缺省回落标量 ref_price
+    ref_price = (body.ref_prices or body.ref_price) if body else None
     result = await worker_core_service.async_start_worker(worker_id, ref_price=ref_price)
 
     current_state = await worker_state_manager.get_state(worker_id)

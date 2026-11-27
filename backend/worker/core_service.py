@@ -220,6 +220,12 @@ class WorkerCoreService:
         """
         try:
             with self.get_db() as db:
+                # spec §6：创建表单的 params 通道 —— 从顶层 dict 摘出塞进 config['strategy_params']，
+                # 启动时按「策略行参数 < worker params」合并（见 _do_start_strategy）。
+                # 不能留在顶层：WorkerCreate extra="forbid" 会拒收，且易与命令参数混淆。
+                params_override = data.pop("params", None)
+                if params_override is not None:
+                    data["config"] = {**(data.get("config") or {}), "strategy_params": params_override}
                 # crud 层按 WorkerCreate schema 落库；这里把 dict 边界数据转成 schema，
                 # 与 update_worker 的 schemas.WorkerUpdate(**data) 保持一致，并让 extra="forbid" 生效
                 create_data = schemas.WorkerCreate(**data)
@@ -726,7 +732,7 @@ class WorkerCoreService:
 
     # ==================== 启动 / 停止 / 重启 ====================
 
-    def start_worker(self, worker_id: int, ref_price: float | None = None) -> dict:
+    def start_worker(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> dict:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
@@ -735,7 +741,9 @@ class WorkerCoreService:
 
         Args:
             worker_id: Worker ID
-            ref_price: 启动参考价（锚定固化价格计划；None 时计划落 pending）
+            ref_price: 启动参考价（锚定固化价格计划；None 时计划落 pending）。
+                多标的 worker 可传 {symbol: price}（启动确认弹窗逐标的采集），
+                缺价标的传 None 由固化端落 pending
 
         Returns:
             dict: {"worker_id": int, "status": str, "pid": int}
@@ -764,12 +772,13 @@ class WorkerCoreService:
             logger.error(f"[WorkerCoreService] 进程内启动 Worker {worker_id} 失败: {e}")
             raise WorkerOperationException("启动", worker_id, message=str(e)) from e
 
-    def _start_worker_in_process(self, worker_id: int, ref_price: float | None = None) -> dict:
+    def _start_worker_in_process(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> dict:
         """进程内直调 worker_system 启动策略（同步上下文入口）。
 
         本方法运行在工作线程（asyncio.to_thread / CLI 主线程），必须用
         asyncio.run 起新 loop 驱动 async 的 start_strategy；state 管理器的
         锁已是 threading.Lock（worker_state.py），跨 loop 调用安全。
+        ref_price 标量或 {symbol: price} dict 原样透传（归一化在 strategy_manager）。
         """
         import asyncio
 
@@ -805,7 +814,7 @@ class WorkerCoreService:
             logger.info(f"[WorkerCoreService] Worker {worker_id} 无运行时记录，视为已停止")
         return {"worker_id": worker_id, "status": "stopped"}
 
-    async def async_start_worker(self, worker_id: int, ref_price: float | None = None) -> dict:
+    async def async_start_worker(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> dict:
         """异步启动 Worker（与 CLI 同步版本调用链一致，进程内直调 worker_system）。
 
         统一走 self.start_worker() 的同步实现，通过线程池执行，保证 FastAPI

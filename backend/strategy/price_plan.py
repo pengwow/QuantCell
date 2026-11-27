@@ -3,6 +3,10 @@
 纪律：预览 API、grid/martingale 策略 on_start 固化、自定义策略 price_plan 类方法
        全部从本模块取公式。任何消费方不得复制公式（契约测试守护）。
 约束：无 IO、无状态、不出网络请求；入参出参均为可 JSON 序列化结构。
+
+区间缺省规则（spec §2）：grid_plan 的 params 显式 lower/upper > ref_price ±20% 推导；
+       预览 / 启动固化 / 详情三处同走此公式。复核备注：martingale_plan 全部层价
+       由 entry=ref_price 相对推导、无绝对价格参数，无需本规则。
 """
 
 from __future__ import annotations
@@ -10,6 +14,8 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+GRID_DEFAULT_SPREAD = 0.20  # grid 缺省区间 = ref ±20%（spec §2，仅 params 未提供时）
 
 
 class PricePlanLevel(BaseModel):
@@ -47,9 +53,20 @@ def linear_levels(lower: float, upper: float, count: int) -> list[float]:
 
 
 def grid_plan(params: dict[str, Any], ref_price: float) -> PricePlan:
-    """等距网格计划。公式 = 现 on_bar 档位语义的静态展开（spec 3.1）。"""
-    lower = float(params.get("lower", 60000.0))
-    upper = float(params.get("upper", 70000.0))
+    """等距网格计划。公式 = 现 on_bar 档位语义的静态展开（spec 3.1）。
+
+    缺省区间（spec §2）：params 无 lower/upper 时由 ref_price ± GRID_DEFAULT_SPREAD
+    推导；键存在但值非法仍走下方 warnings 分支，不做兜底。
+    """
+    # 键缺失才推导；键存在但值非法走原有 warnings 分支
+    if "lower" not in params:
+        lower = round(float(ref_price) * (1 - GRID_DEFAULT_SPREAD), 8)
+    else:
+        lower = float(params["lower"])
+    if "upper" not in params:
+        upper = round(float(ref_price) * (1 + GRID_DEFAULT_SPREAD), 8)
+    else:
+        upper = float(params["upper"])
     levels = int(params.get("levels", 20))
     limit = float(params.get("position_limit", 0.1))
     warnings: list[str] = []

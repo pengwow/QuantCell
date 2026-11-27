@@ -26,6 +26,28 @@ class TestGridPlan:
         plan = grid_plan({"lower": 200.0, "upper": 100.0, "levels": 4, "position_limit": 0.1}, ref_price=150.0)
         assert plan.warnings  # upper<=lower 不抛异常，出 warning
 
+    def test_grid_plan_defaults_from_ref_price(self):
+        """spec §2：params 缺省 lower/upper 时由 ref_price 推导（±20%）。"""
+        from strategy.price_plan import GRID_DEFAULT_SPREAD, grid_plan
+
+        plan = grid_plan({"levels": 20}, ref_price=61624.4)
+        lo = 61624.4 * (1 - GRID_DEFAULT_SPREAD)
+        hi = 61624.4 * (1 + GRID_DEFAULT_SPREAD)
+        assert plan.warnings == [] or all("区间外" not in w for w in plan.warnings)  # ref 必须落在推导区间内
+        assert plan.levels, "推导区间必须产出档位"
+        assert plan.summary.price_min == pytest.approx(lo)
+        assert plan.summary.price_max == pytest.approx(hi)
+
+    def test_grid_plan_explicit_params_win(self):
+        """params 显式值优先，推导不覆盖。"""
+        plan = grid_plan({"lower": 100.0, "upper": 200.0}, ref_price=150.0)
+        assert plan.summary.price_min == 100.0 and plan.summary.price_max == 200.0
+
+    def test_grids_illegal_params_still_warn(self):
+        """显式传入非法值（lower>=upper）仍走现有 warnings 通道（行为不变）。"""
+        plan = grid_plan({"lower": 200.0, "upper": 100.0}, ref_price=150.0)
+        assert plan.warnings
+
 
 class TestMartingalePlan:
     PARAMS = {

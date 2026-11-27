@@ -292,30 +292,52 @@ class StrategyManager:
                 )
 
     def _persist_worker_price_plan(
-        self, worker_id: int, strategy_name: str, params: dict, ref_price: float | None
+        self, worker_id: int, strategy_name: str, params: dict, ref_prices: dict[str, float | None]
     ) -> None:
-        """把预览计划按启动参考价固化落 DB（同一 preview 纯函数，同源不漂移）"""
+        """按标的多份固化（spec §3 D4）。
+
+        ref_prices 缺失（None/<=0）→ 该标的落 pending 占位，不阻塞其他标的（Partial 固化）。
+        预览是纯函数，逐标的调用互不影响。
+        """
         # 函数内 import：strategy.service 在模块加载期与 workers 包有循环依赖，
         # 且 get_strategy_service 持有模块级单例，只在启动链路真正用到
         from strategy.routes import get_strategy_service
         from strategy.service import PlanPreviewError
 
+        if not ref_prices:
+            return
         svc = get_strategy_service()
         if not svc.has_price_plan(strategy_name):
             return
-        try:
-            plan = svc.preview_price_plan(strategy_name, params, ref_price)
-            crud.save_worker_price_plan(int(worker_id), plan, ref_price)
-        except PlanPreviewError as exc:
-            crud.save_worker_price_plan(int(worker_id), None, None)  # pending 占位而非空白
-            logger.warning("price plan pending worker_id=%s code=%s", worker_id, exc.code)
+        # 9 位纳秒 ISO（项目时间戳规范），与 marketdata/service.py 同款手法
+        now = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "000+00:00")
+        plans: dict[str, dict | None] = {}
+        for symbol, ref in ref_prices.items():
+            if ref and float(ref) > 0:
+                try:
+                    plan = svc.preview_price_plan(strategy_name, params, float(ref))
+                    plans[symbol] = {
+                        "symbol": symbol,
+                        "state": "fixed",
+                        "ref_price": float(ref),
+                        "plan": plan,
+                        "fixed_at": now,
+                    }
+                except PlanPreviewError as exc:  # 既有 pending 占位语义
+                    plans[symbol] = None
+                    logger.warning(f"price plan pending worker_id={worker_id} symbol={symbol} code={exc.code}")
+            else:
+                plans[symbol] = None
+        crud.save_worker_price_plans(int(worker_id), plans)
 
-    async def start_strategy(self, worker_id: int, ref_price: float | None = None) -> bool:
+    async def start_strategy(self, worker_id: int, ref_price: float | dict[str, float] | None = None) -> bool:
         """启动策略
 
         Args:
             worker_id: Worker ID
-            ref_price: 启动参考价（锚定固化价格计划；None 时计划落 pending）
+            ref_price: 启动参考价（锚定固化价格计划；None 时计划落 pending）。
+                dict = {symbol: ref_price}（多标的，启动确认弹窗逐标的采集），
+                标量只锚定第一个标的、其余落 pending
 
         Returns:
             是否启动成功
@@ -438,6 +460,13 @@ class StrategyManager:
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.warning(f"[StrategyManager] 策略参数 JSON 解析失败: {e}")
 
+            # 合并 worker 级策略参数覆盖（来源：创建表单 params → config['strategy_params']，
+            # 及 API 直接写入 config 的存量数据）：合并序「策略行参数 < worker 参数」。
+            # 值为 None 视为未覆盖（表单层已过滤空值，这里是第二道防线，占位项不污染运行参数）
+            override_params = (worker.get_config_dict() or {}).get("strategy_params")
+            if isinstance(override_params, dict):
+                params.update({k: v for k, v in override_params.items() if v is not None})
+
             # R2 防护：特征类策略在 paper/live 无数据源，启动即拒绝（覆盖下方全部路由分支）
             self._reject_feature_strategy_if_configured(worker_id, params)
 
@@ -505,12 +534,21 @@ class StrategyManager:
         )
 
         # 价格计划固化（spec §3.3/§4.A）：与启动确认弹窗的 preview 互为镜像——
-        # 同一 price_plan 纯函数 + 同一 ref_price ⇒ 预览必然等于执行计划。
+        # 同一 price_plan 纯函数 + 同一 ref ⇒ 预览必然等于执行计划。
+        # ref_price 归一为逐标的入参：dict = 弹窗逐标的采集（多标的分散执行）；
+        # 标量 = 只锚定第一个标的、其余 pending；未提供 = 全部 pending。
         # 固化失败不阻断启动；落 pending 由 plan API 呈现
+        if isinstance(ref_price, dict):
+            # ref_prices dict 里缺键的标的按 pending 处理
+            ref_prices = {s: ref_price.get(s) for s in symbols}
+        elif ref_price is not None and float(ref_price) > 0:
+            ref_prices = {symbols[0]: float(ref_price), **{s: None for s in symbols[1:]}}
+        else:
+            ref_prices = {s: None for s in symbols}
         try:
-            self._persist_worker_price_plan(worker_id, strategy.name, params, ref_price)
+            self._persist_worker_price_plan(worker_id, strategy.name, params, ref_prices)
         except Exception as exc:
-            logger.warning("price plan persist failed worker_id=%s err=%s", worker_id, exc)
+            logger.warning(f"price plan persist failed worker_id={worker_id} err={exc}")
 
         # 规则/LLM 路由：testnet → LiveDriver 接合约测试网真实账户，其余按 paper 演练
         if rule_mode == "testnet":

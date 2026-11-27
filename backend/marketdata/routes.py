@@ -97,3 +97,37 @@ async def get_latest_price(
             detail={"code": "exchange_unreachable", "message": f"获取实时价格失败: {exc}"},
         ) from exc
     return _ok(data)
+
+
+@router.get(
+    "/klines",
+    summary="真实K线回源（价格计划预览用）",
+    description=(
+        "币安公共 REST 直连（spot/margin→api.binance.com，futures→fapi.binance.com），无缓存。"
+        "interval 白名单 1m/5m/15m/1h/4h/1d，limit 1-500 缺省 120。"
+    ),
+)
+async def get_recent_klines(
+    symbol: str = Query(..., min_length=4, max_length=30, description="交易对，如 BTCUSDT 或 BTC/USDT"),
+    market_type: str = Query("spot", description="市场类型：spot / margin / futures"),
+    exchange: str = Query("binance", description="交易所，当前仅支持 binance"),
+    interval: str = Query("15m", description="K线周期：1m/5m/15m/1h/4h/1d"),
+    limit: int | None = Query(None, ge=1, le=500, description="返回根数，缺省 120"),
+) -> dict:
+    """K线序列 [{ts,open,high,low,close,volume}]（ts 毫秒、时间升序）。错误契约同 /price：
+    不支持的交易所/市场类型 → 400；周期非法 → 422；回源失败 → 502 exchange_unreachable。"""
+    try:
+        data = await service.fetch_recent_klines(symbol, market_type, exchange, interval, limit)
+    except service.UnsupportedExchangeError as exc:
+        # 未支持的交易所/市场类型是调用方参数问题，400 让前端如实展示
+        raise HTTPException(status_code=400, detail={"code": "unsupported_exchange", "message": str(exc)}) from exc
+    except ValueError as exc:
+        # interval 白名单越界同样是参数问题，422 与 FastAPI 校验错误状态码对齐
+        raise HTTPException(status_code=422, detail={"code": "invalid_interval", "message": str(exc)}) from exc
+    except Exception as exc:
+        # 交易所不可达如实上报 502，不做本地降级
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "exchange_unreachable", "message": f"获取K线数据失败: {exc}"},
+        ) from exc
+    return _ok(data)

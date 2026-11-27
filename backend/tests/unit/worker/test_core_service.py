@@ -51,6 +51,17 @@ class TestCoreServiceInProcessIntegration:
         assert result["status"] == "running"
         assert result["pid"] == os.getpid()
 
+    def test_start_worker_in_process_passes_ref_price_dict(self):
+        """多标的启动：ref_price 按标的 dict 透传给 start_strategy（spec §4 多标的固化）"""
+        service = WorkerCoreService()
+        mock_worker_system = MagicMock()
+        mock_worker_system.start_strategy = AsyncMock(return_value=True)
+        ref_prices = {"BTCUSDT": 100.0, "ETHUSDT": None}
+        with patch("worker.strategy_manager.worker_system", mock_worker_system):
+            service._start_worker_in_process(11, ref_price=ref_prices)
+
+        mock_worker_system.start_strategy.assert_awaited_once_with(11, ref_price=ref_prices)
+
     def test_stop_worker_in_process_success(self):
         """进程内直调：stop_strategy 正常完成即返回 stopped（无 pid SIGTERM 兜底场景）。"""
         service = WorkerCoreService()
@@ -89,6 +100,26 @@ class TestCoreServiceInProcessIntegration:
                 service._start_worker_in_process(11)
         assert "策略启动失败" in exc_info.value.message
         assert "未知原因" not in exc_info.value.message
+
+    def test_create_worker_stores_params_in_config(self):
+        """spec §6：创建 params 通道 —— 顶层 params 摘进 config['strategy_params'] 落库。
+
+        留在顶层会被 WorkerCreate extra="forbid" 拒收，且易与命令参数混淆。
+        """
+        service = WorkerCoreService()
+        mock_db = MagicMock()
+        fake_worker = MagicMock()
+        fake_worker.to_dict.return_value = {"id": 1, "name": "w1"}
+        with (
+            patch.object(service, "get_db", return_value=mock_db),
+            patch.object(service, "_validate_and_fill_strategy") as mock_validate,
+            patch("worker.core_service.crud.create_worker", return_value=fake_worker) as mock_create,
+        ):
+            service.create_worker({"name": "w1", "trading_config": {"exchange": "binance"}, "params": {"levels": 8}})
+
+        created = mock_create.call_args.args[1]
+        assert created.config["strategy_params"] == {"levels": 8}
+        mock_validate.assert_called_once()
 
 
 class TestValidateAndFillStrategy:

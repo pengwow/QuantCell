@@ -254,23 +254,18 @@ def update_worker_config(db: Session, worker_id: int, config: dict[str, Any]) ->
     return worker
 
 
-def _price_plan_entry(config: dict[str, Any] | None, plan: dict | None, ref_price: float | None) -> dict:
-    """组装写进 config 的 price_plan 固化条目（fixed/pending 两种形态）"""
-    return {
-        "state": "fixed" if plan is not None else "pending",
-        "ref_price": ref_price,
-        "plan": plan,
-        # fixed_at 仅在固化成功时记录；pending 占位不落时间
-        "fixed_at": datetime.now().isoformat() if plan is not None else None,
-    }
+def _pending_plans_entry(symbol: str) -> dict:
+    """价格计划 pending 占位条目（未固化标的也落 config，详情页 chips 才有完整标的表）"""
+    return {"symbol": symbol, "state": "pending"}
 
 
-def save_worker_price_plan(worker_id: str | int, plan: dict | None, ref_price: float | None) -> bool:
-    """把启动时的价格计划固化进 Worker.config['price_plan']（DB 即事实源）。
+def save_worker_price_plans(worker_id: str | int, plans: dict[str, dict | None]) -> bool:
+    """价格计划按标的多份写入 Worker.config['price_plan']（spec §3 v2 结构，DB 即事实源）。
 
-    - plan 非 None → state=fixed；plan=None → state=pending 占位（fixed_at 清空）
-    - 与 update_worker_config 同样按「读到现状再合并」写入；调用点在启动链路
-      单线程内，不含与用户改 config 的并发窗口（见 update_worker_config 注释）
+    plans 值为 None 的标的写 pending 占位；写入端永远写整体覆写的
+    {"version": 2, "plans": {...}}，不做增量合并（覆盖语义最简单可推理）。
+    config 读写手法与 save_worker_price_plan（旧版）/update_worker_config 相同：
+    读现状 → 改内存 dict → 单条 UPDATE → commit；调用点在启动链路单线程内。
 
     Returns:
         worker 不存在时返回 False
@@ -284,7 +279,8 @@ def save_worker_price_plan(worker_id: str | int, plan: dict | None, ref_price: f
         if not worker:
             return False
         current_config = worker.get_config_dict()
-        current_config["price_plan"] = _price_plan_entry(current_config.get("price_plan"), plan, ref_price)
+        plans_out = {sym: (entry if entry is not None else _pending_plans_entry(sym)) for sym, entry in plans.items()}
+        current_config["price_plan"] = {"version": 2, "plans": plans_out}
         db.query(Worker).filter(Worker.id == wid).update(
             {
                 "config": json.dumps(current_config),
@@ -296,29 +292,45 @@ def save_worker_price_plan(worker_id: str | int, plan: dict | None, ref_price: f
         return True
 
 
-def get_worker_price_plan(worker_id: str | int) -> dict | None:
-    """读取固化的价格计划；worker 不存在或从未固化过返回 None。
+def get_worker_price_plan(worker_id: str | int, symbol: str | None = None) -> tuple[dict | None, list[dict]]:
+    """读取价格计划固化快照（兼容 v1 单份旧结构，spec §3）。
 
     Returns:
-        {"state": fixed|pending, "ref_price", "plan", "fixed_at"}
+        (entry, symbols_states)：
+        - entry: 请求标的的固化条目 {symbol, state, ref_price, plan, fixed_at}；
+          worker 不存在或从未固化 → None；请求标的为 pending → {"symbol", "state"}
+        - symbols_states: [{"symbol", "state"}] 按存储顺序；v1 → [首标的那份]
     """
     try:
         wid = int(worker_id)
     except TypeError, ValueError:
-        return None
+        return None, []
     with get_db_session() as db:
         worker = db.query(Worker).filter(Worker.id == wid).first()
         if not worker:
-            return None
-        entry = worker.get_config_dict().get("price_plan")
-        if not isinstance(entry, dict):
-            return None
-        return {
-            "state": entry.get("state"),
-            "ref_price": entry.get("ref_price"),
-            "plan": entry.get("plan"),
-            "fixed_at": entry.get("fixed_at"),
-        }
+            return None, []
+        raw = worker.get_config_dict().get("price_plan")
+        if not isinstance(raw, dict) or not raw:
+            return None, []
+
+        if "plans" in raw:  # v2：按标的多份
+            plan_map: dict[str, dict] = raw["plans"]
+        else:  # v1：单份旧结构（无 symbol 字段），对齐 v2 读取口径时补齐
+            first = raw.get("symbol") or (worker.get_symbols() or [None])[0]
+            if not first:
+                return None, []
+            plan_map = {first: {"symbol": first, **raw}}
+        if not plan_map:
+            return None, []
+
+        symbols_states = [
+            {"symbol": k, "state": v.get("state", "fixed" if v.get("plan") else "pending")} for k, v in plan_map.items()
+        ]
+        target = symbol or next(iter(plan_map))
+        entry = plan_map.get(target)
+        if entry is None:
+            entry = _pending_plans_entry(target)
+        return entry, symbols_states
 
 
 def delete_worker(db: Session, worker_id: int) -> bool:
