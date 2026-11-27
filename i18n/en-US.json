@@ -3938,5 +3938,18 @@
   "home_sys_llm_429": " · 429 ×{{n}}",
   "home_sys_llm_val": "p95 {{ms}}",
   "agent_stop_generation": "Stop generating",
-  "agent_generation_stopped": "Generation stopped — this reply is incomplete; re-ask or rephrase"
+  "agent_generation_stopped": "Generation stopped — this reply is incomplete; re-ask or rephrase",
+  "pricePlan.action_buy": "Buy",
+  "pricePlan.action_sell": "Sell",
+  "pricePlan.action_tp": "Take profit",
+  "pricePlan.action_mid": "Mid",
+  "pricePlan.col_index": "#",
+  "pricePlan.col_action": "Action",
+  "pricePlan.col_price": "Price",
+  "pricePlan.col_target": "Target",
+  "pricePlan.col_label": "Note",
+  "pricePlan.summary_range": "Price range [{{min}}, {{max}}]",
+  "pricePlan.summary_entry": " · Ref {{entry}}",
+  "pricePlan.collapse_detail": "Collapse details",
+  "pricePlan.expand_detail": "Expand details ({{count}} levels)"
 }

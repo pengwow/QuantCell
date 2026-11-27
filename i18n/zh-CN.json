@@ -3938,5 +3938,18 @@
   "home_sys_llm_429": " · 429 {{n}} 次",
   "home_sys_llm_val": "p95 {{ms}}",
   "agent_stop_generation": "停止生成",
-  "agent_generation_stopped": "已停止生成——本次回复不完整，可重新提问或换个说法"
+  "agent_generation_stopped": "已停止生成——本次回复不完整，可重新提问或换个说法",
+  "pricePlan.action_buy": "买入",
+  "pricePlan.action_sell": "卖出",
+  "pricePlan.action_tp": "止盈",
+  "pricePlan.action_mid": "中枢",
+  "pricePlan.col_index": "#",
+  "pricePlan.col_action": "动作",
+  "pricePlan.col_price": "价格",
+  "pricePlan.col_target": "目标仓位",
+  "pricePlan.col_label": "说明",
+  "pricePlan.summary_range": "价格区间 [{{min}}, {{max}}]",
+  "pricePlan.summary_entry": " · 参考价 {{entry}}",
+  "pricePlan.collapse_detail": "收起明细",
+  "pricePlan.expand_detail": "展开明细（{{count}} 档）"
 }
