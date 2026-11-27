@@ -15,7 +15,6 @@ import {
   Tooltip,
   App,
   Drawer,
-  Alert,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -45,7 +44,6 @@ import {
 } from '../../monaco/quantcellTheme';
 import QcEditorStatusBar from '../../monaco/QcEditorStatusBar';
 import StrategyVersionPanel from './StrategyVersionPanel';
-import EditorPlanTab from './EditorPlanTab';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { strategyApi, aiModelApi } from '../../api';
 import { factorApi, type FactorDetail } from '../../api/factor';
@@ -1569,17 +1567,6 @@ class NewStrategy(BaseStrategy):
                     </Spin>
                   </Card>
                 )
-              },
-              {
-                key: 'pricePlan',
-                label: t('pricePlan.editor_tab_label'),
-                children:
-                  selectedStrategy && selectedStrategy.strategy_type !== 'rl' ? (
-                    <EditorPlanTab strategyName={selectedStrategy.name} />
-                  ) : (
-                    // RL 策略无 on_bar 计划语义，info 提示占位
-                    <Alert type="info" message={t('pricePlan.editor_rl_unsupported')} />
-                  ),
               }
             ]}
           />

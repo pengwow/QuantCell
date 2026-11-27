@@ -20,6 +20,8 @@
 | E11 | 预览页看参数 / 依赖因子区 | 区头为 `qc-card-sub`（10.5px）+ `qc-mini-btn pri`「+ 添加参数 / + 添加因子」；行内元数据用 `qc-chip`（quiet/info/ok/warn）+ `qc-mono`，行尾 hover 出 `qc-mini-btn qc-icon-only`（编辑/删除）；新增行自动进编辑态、删除/改值可保存 | L2 |
 | E12 | 打开"创建策略"模板选择弹窗 | `Modal` 挂 `qc-modal`（14px 面板圆角、§6.11 密度）；底部跳过/创建按钮为 `qc-mini-btn`；下拉底部上传行仍整行可点 | L2 |
 | E3 | 选择一个模板创建策略 | 编辑器载入策略代码；右上保存可用（若执行写操作，用测试名如 `zz_test_doc` 并删除） | L2 |
+| E3a | 模板选择弹窗选 grid 模板，看参数表单 | 价格计划配置项完整渲染：lower / upper / levels / position_limit 四项（默认 60000 / 70000 / 20，与 `GET /api/v1/ai-models/strategy/templates` 该模板 `variables[]` 逐条一致）；填参创建后（用测试名并删除）`POST /strategy/upload` 落盘的 `params` 与表单填写一致，worker 页价格计划预览档位数 = levels+1（W32-W36） | L2 |
+| E3b | 同法选 martingale 模板 | direction 为下拉且 options 恰为 long/short/both；价格计划配置项齐全：direction / base_position / multiplier / max_multiplier / spacing_pct / spacing_multiplier / layer_count / take_profit_pct（默认 0.1 / 2.0 / 4.0 / 2.0 / 1.5 / 5 / 1.0）；**同名参数只渲染一次，不出现重复字段**（回归哨）；创建后 worker 页 plan 预览层价符合闭式公式（entry=100 → 100/98/95/90.5/83.75，满层仓位超上限出警告） | L2 |
 | E4a | 点"AI生成策略"，弹窗内输入"创建一个双均线策略"，发送 | — 若数据目录**已配 AI 提供商**：思维链步骤开始渲染，network 出现 `POST /api/v1/ai-models/strategy/generate`（SSE）即算过，**不等待生成完成**，点击停止/关闭弹窗 | L1 |
 | E4b | — 若**未配 AI 提供商**（400 分支） | 气泡出现**可读中文文案**（如"未配置默认AI模型"），绝不出现 `[object Object]` 或裸状态码 | L1 |
 | E5 | "优化当前代码"页签 | 输入框可切换，提交按钮可点击（不要求真实优化完成） | L2 |
@@ -28,11 +30,10 @@
 | E15 | 点「AI 生成策略」打开弹窗 | 弹窗标题右侧出现「kernel 兼容契约」chip（info 档色 + mono 形制，沿用 `qc-chip info` 口径）；不挤压标题、窄窗下不换行错位 | L1 |
 | E16 | 载入已保存策略后点工具栏「版本历史」 | 右侧抽屉（标题「版本历史」，宽 920px）内为**左时间轴 + 右快照预览**双栏：左侧每条 = 时间 + 版本号 + `hash · 大小 · 行数`（当前条圆点高亮），点击即选中；右侧 = meta 行（版本 / 创建 / 大小 / 行数 / hash / 「当前文件」标记）+ 只读 Monaco 快照全文 + 底部「对比当前文件」开关与「载入编辑器」按钮；切换快照时 meta 与代码同步切（无第二次请求，按 id 缓存）；未载入策略时该钮 disabled；抽屉展开无 console error | L2 |
 | E17 | 在编辑器里改代码但不保存 → 打开「版本历史」→ 点「载入编辑器」→ 确认 | Popconfirm 提示「把 {label} 载入编辑器？」，`dirty` 时额外出现「编辑器里尚未保存的改动会丢失」；确认后**只写编辑缓冲区**：`code` = 快照全文、页头出现「未保存」chip、保存按钮高亮，抽屉关闭并提示「已载入 {label} 到编辑器，保存后才会生成新快照」；此时 `GET /strategy/{name}/versions` 的 `count` 不变、磁盘文件未改（无任何写请求）；点「保存」后才 `POST /strategy/upload`，`count` +1（内容与最近快照相同则按 `code_hash` 去重不涨），「未保存」chip 消失 | L2 |
-| E18 | 载入实现 price_plan 协议的策略（如网格类），右侧区块切到「价格计划」tab | 出现「参考价」InputNumber 与「参数覆盖(JSON)」TextArea；不填参考价时预览区显示可读错误 Alert（`REF_PRICE_REQUIRED` 文案类，非 `[object Object]`）；填入当前价格后约 0.3s 渲染迷你 K 线 + 档位 chips + 区间摘要 + 可折叠明细表；network 应见 `POST /api/v1/strategies/preview`（连改只发最后一次） | L1 |
-| E19 | hover 档位 chips 或明细表任意行 | 迷你图对应价位线加粗高亮（联动），移开恢复；明细表格行 hover 背景高亮 | L2 |
-| E20 | 载入 `strategy_type=rl` 的策略切「价格计划」tab | 显示「该策略类型暂不支持价格计划」语义的 Alert，不渲染预览区 | L1 |
 
 ## 历史雷区
+- **模板参数表单同名重复**（已修 2026-11-27）：`self.get_param("direction", "long")` 带 Literal 注解在策略的两个方法里各出现一次时，`strategy/service.py::_extract_params_from_get_param` 的 AnnAssign 分支漏检 `seen` 去重，templates 接口返回两个 `direction`、创建表单重复渲染同名字段。已修为「首次绑定为准」；E3b 的「不重复渲染」是回归哨。自写策略里同一参数多处取值属正常写法，提取器必须兜住
+- **价格计划 tab 已从编辑器移除**（2026-11-27）：编辑器态没有货币对/运行时参考价，参考价全靠手填不实用。价格计划展示只保留 worker 链路（创建弹窗自检 / 启动确认 / 详情 plan tab / 列表摘要）与 chart / backtest 回放 overlay；后端 `POST /api/v1/strategies/preview` 仍被 worker 链路使用，勿删。验证项见 `pages/strategy-worker.md` W32-W36
 - **成对括号配色**（2026-11-20）：Monaco 默认开启 bracket pair colorization，`()`/`[]`/`{}` 会染金/紫/粉，与基准 demo 的单色括号不一致。修法是在主题里把 `editorBracketHighlight.foreground1..6` 统一到 `#d4d4d4`（`src/monaco/quantcellTheme.ts`）；**注意 `options.bracketPairColorization.enabled: false` 经 `@monaco-editor/react` 传不进去，别走那条路**
 - **编辑器 token 色的唯一真相源是 `src/monaco/quantcellTheme.ts`**（不是 demo）。demo 的 `.tk-*` 是静态 mock，`node docs/design/check-spec.mjs` 会比对两者，改色必须三处同步：主题文件 → demo CSS → spec §6.16 表
 - **`[object Object]`**（已修 75077d29）：后端 400 错误体 `{detail:{message}}` 被整体塞进 Error。E4b 是回归哨——**凡错误断言先看文案可读性**
