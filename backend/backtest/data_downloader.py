@@ -125,6 +125,7 @@ class BacktestDataDownloader:
             end_time: 结束时间
             market_type: 市场类型
             crypto_type: 加密货币类型
+            注: 检查口径为 source 单文件 Parquet，与回测加载同源（DB 仅作副本口径）
             max_wait_time: 最大等待时间（秒）
             progress_callback: 进度回调函数
 
@@ -138,7 +139,7 @@ class BacktestDataDownloader:
         # 1. 检查数据完整性
         logger.info(f"检查数据完整性: {symbol} {interval}")
         result = self.integrity_checker.check_data_completeness(
-            symbol, interval, start_time, end_time, market_type, crypto_type
+            symbol, interval, start_time, end_time, market_type, crypto_type, source="parquet"
         )
 
         # 2. 如果数据完整，直接返回
@@ -213,9 +214,12 @@ class BacktestDataDownloader:
         for idx, (start_time, end_time) in enumerate(missing_ranges):
             logger.info(f"下载缺失段 {idx + 1}/{len(missing_ranges)}: {start_time} ~ {end_time}")
 
-            # 添加少量缓冲时间
-            download_start = start_time - timedelta(hours=1)
-            download_end = end_time + timedelta(hours=1)
+            # binance vision 逐日 zip：起止对齐整天，半天的缺口也要下载完整一天
+            # （此前 ±1h 缓冲会让跨天段拿到不完整的一天）
+            download_start = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            download_end = end_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            if end_time.hour or end_time.minute or end_time.second:
+                download_end += timedelta(days=1)
 
             if self.standalone_mode:
                 # 使用独立下载器
