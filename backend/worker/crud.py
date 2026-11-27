@@ -209,7 +209,11 @@ def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate
                     # trading_config 走双写收敛点（Phase A）：K线周期在 interval/timeframe 两键同步
                     worker.set_trading_config_dict(value)
                 else:
-                    setattr(worker, json_field, json.dumps(value))
+                    # config 合并写（D5）：编辑弹窗只提交部分 config 键（如 initial_capital），
+                    # 整体替换会清掉创建时写入的 strategy_params / strategy_params_by_symbol
+                    merged_config = worker.get_config_dict()
+                    merged_config.update(value or {})
+                    setattr(worker, json_field, json.dumps(merged_config))
 
     if strategy_file_name is not None:
         merged_config = worker.get_config_dict()
@@ -562,18 +566,25 @@ def get_worker_strategy_parameters(db: Session, worker_id: int) -> list[dict[str
             if isinstance(raw, list):
                 schema_items = [item for item in raw if isinstance(item, dict) and item.get("name")]
 
-    overrides = {p.param_name: p for p in get_worker_parameters(db, worker_id)}
+    table_overrides = {p.param_name: p for p in get_worker_parameters(db, worker_id)}
+    # D5：config.strategy_params 是新的单一事实源（启动链路只读它）；
+    # 旧 worker_parameters 快照表降级为只读 fallback（有 config 值时表值不生效）
+    config_params = ((worker.get_config_dict() if worker is not None else {}) or {}).get("strategy_params") or {}
 
     result: list[dict[str, Any]] = []
     for item in schema_items:
         name = item["name"]
-        override = overrides.pop(name, None)
+        override = table_overrides.pop(name, None)
         schema_default = item.get("default")
+        # 生效值：config 优先（即使值为 None=显式清空），回退旧表快照，再回退 schema 默认
+        if name in config_params:
+            effective = config_params.pop(name)
+        else:
+            effective = override.get_value() if override is not None else schema_default
         row: dict[str, Any] = {
             "worker_id": worker_id,
             "param_name": name,
-            # 生效值：worker 覆盖值优先，回退 schema 默认值（None 表示策略内部默认为空）
-            "param_value": override.get_value() if override is not None else schema_default,
+            "param_value": effective,
             "param_type": str(item.get("type") or "string").lower(),
             "default_value": schema_default,
             "description": item.get("description") or "",
@@ -586,39 +597,74 @@ def get_worker_strategy_parameters(db: Session, worker_id: int) -> list[dict[str
                 row["description"] = override.description
         result.append(row)
 
-    # schema 之外的残留覆盖值（策略更新改名后快照还在）：原样保留，避免用户已保存的值静默失去展示
-    for orphan in overrides.values():
+    # schema 之外的残留值（策略更新改名后的旧快照 + config 残留键）：原样保留，避免用户已保存的值静默失去展示
+    for orphan in table_overrides.values():
         result.append(orphan.to_dict())
+    for orphan_name, orphan_value in config_params.items():
+        result.append(
+            {
+                "worker_id": worker_id,
+                "param_name": orphan_name,
+                "param_value": orphan_value,
+                "param_type": type(orphan_value).__name__.lower(),
+                "default_value": None,
+                "description": "",
+                "required": False,
+                "editable": True,
+            }
+        )
 
     return result
 
 
 def update_worker_parameters(db: Session, worker_id: int, parameters: dict[str, Any]) -> None:
-    """更新Worker参数"""
-    for name, value in parameters.items():
-        param = (
-            db.query(WorkerParameter)
-            .filter(
-                and_(
-                    WorkerParameter.worker_id == worker_id,
-                    WorkerParameter.param_name == name,
-                )
-            )
-            .first()
-        )
+    """更新 Worker 策略参数（D5：写入 config.strategy_params，不再写 worker_parameters 快照表）。
 
-        if param:
-            param.param_value = value
-        else:
-            param = WorkerParameter(
-                worker_id=worker_id,
-                param_name=name,
-                param_value=value,
-                param_type=type(value).__name__,
-                editable=True,
-            )
-            db.add(param)
+    启动链路的参数事实源是 config.strategy_params（_do_start_strategy 读取），
+    快照表写入会让「编辑弹窗保存的参数」永远不生效（存量 bug）。
+    """
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    if not worker:
+        return
+    current = worker.get_config_dict()
+    current["strategy_params"] = {**(current.get("strategy_params") or {}), **parameters}
+    db.query(Worker).filter(Worker.id == worker_id).update(
+        {
+            "config": json.dumps(current),
+            "updated_at": datetime.now(),
+        },
+        synchronize_session=False,
+    )
+    db.commit()
 
+
+def get_worker_param_overrides(db: Session, worker_id: int) -> dict[str, dict[str, Any]]:
+    """读取按标的参数覆盖（config.strategy_params_by_symbol，spec §3.3）。"""
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    if worker is None:
+        return {}
+    return (worker.get_config_dict() or {}).get("strategy_params_by_symbol") or {}
+
+
+def update_worker_param_overrides(db: Session, worker_id: int, overrides: dict[str, dict[str, Any]]) -> None:
+    """整体替换按标的参数覆盖（PUT 语义）。键统一过 expand_symbol 规范化。"""
+    # 函数内 import：worker 包与 strategy 包循环依赖（与 create_worker 同款注释）
+    from strategy.param_resolver import normalize_symbol_key
+
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    if not worker:
+        return
+    current = worker.get_config_dict()
+    current["strategy_params_by_symbol"] = {
+        normalize_symbol_key(sym): dict(ov) for sym, ov in (overrides or {}).items()
+    }
+    db.query(Worker).filter(Worker.id == worker_id).update(
+        {
+            "config": json.dumps(current),
+            "updated_at": datetime.now(),
+        },
+        synchronize_session=False,
+    )
     db.commit()
 
 

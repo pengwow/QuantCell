@@ -74,6 +74,10 @@ class WorkerCreate(WorkerBase):
     config: dict[str, Any] | None = Field(default=None, description="Worker配置")
     # 创建时的策略参数覆盖，落库到 config['strategy_params']；合并序：策略行参数 < worker params（spec §6）
     params: dict[str, Any] | None = Field(default=None, description="创建时的策略参数覆盖（空值字段由调用方过滤掉）")
+    params_by_symbol: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        description="按标的的策略参数覆盖（键为 expand_symbol 规范化形态），落库到 config['strategy_params_by_symbol']",
+    )
     # 归属用户ID（P1-07 工人属地）：服务端创建时从 JWT sub 提取注入，前端无需传；
     # 声明在此是为了显式接受该字段（extra="forbid"），历史数据为 None
     owner_id: int | None = Field(default=None, description="归属用户ID（服务端注入）")
@@ -158,6 +162,14 @@ class WorkerStartRequest(BaseModel):
     # 多标的启动参考价（启动确认弹窗逐标的采集）；与 ref_price 并存，ref_prices 优先
     ref_prices: dict[str, float | None] | None = Field(
         None, description="多标的启动参考价 {symbol: price}，缺价标的传 null（该标的固化落 pending，不阻断其他标的）"
+    )
+
+
+class WorkerParamOverridesUpdate(BaseModel):
+    """按标的参数覆盖更新（PUT /workers/{id}/strategy/param-overrides，整体替换）"""
+
+    overrides: dict[str, dict[str, Any]] = Field(
+        default_factory=dict, description="{symbol: {param: value}}，键由服务端 expand_symbol 规范化"
     )
 
 

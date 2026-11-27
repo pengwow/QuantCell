@@ -129,3 +129,24 @@ def test_custom_strategy_protocol_full_chain(registry_strategy):
     body = r.json()["data"]
     assert body["levels"][0]["label"] == "入场"
     assert body["params_resolved"] == {}
+
+
+def test_preview_applies_symbol_param_overrides():
+    """spec §3.3：params_by_symbol + symbol → 服务端合并后再算，档位区间随标的覆盖变化。"""
+    payload = {
+        "strategy_name": "grid",
+        "params": {"levels": 20},
+        "ref_price": 100.0,
+        "symbol": "BTC/USDT",
+        "params_by_symbol": {"BTC/USDT": {"lower": 75.0, "upper": 125.0}},
+    }
+    r = client.post("/api/v1/strategies/preview", json=payload)
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["summary"]["price_min"] == 75.0
+    assert data["summary"]["price_max"] == 125.0
+    # 不指定 symbol 的标的覆盖不生效（未命中 → 公共参数 + ref 推导）
+    payload2 = {**payload, "symbol": "ETHUSDT"}
+    r2 = client.post("/api/v1/strategies/preview", json=payload2)
+    assert r2.json()["data"]["summary"]["price_min"] == pytest.approx(80.0)  # ref=100 → 80/120 推导
+    assert r2.json()["data"]["summary"]["price_max"] == pytest.approx(120.0)

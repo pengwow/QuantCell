@@ -1218,7 +1218,10 @@ async def get_strategy_parameters(
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
-    """获取策略参数 - 策略库 schema 为主干 + worker 级覆盖值合并（见 crud.get_worker_strategy_parameters）"""
+    """获取策略参数 - 策略库 schema 为主干 + worker 级覆盖值合并（见 crud.get_worker_strategy_parameters）。
+
+    参数事实源 = config.strategy_params（2026-11-28 起），旧 worker_parameters 快照表只读 fallback。
+    """
     from . import crud
 
     params = crud.get_worker_strategy_parameters(db, worker_id)
@@ -1240,12 +1243,48 @@ async def update_strategy_parameters(
     """
     更新策略参数
 
-    更新数据库中的策略参数
+    写入 config.strategy_params（2026-11-28 起），旧 worker_parameters 快照表只读 fallback。
     """
     from . import crud
 
     crud.update_worker_parameters(db, worker_id, request.parameters)
     return schemas.ApiResponse(code=0, message="参数更新成功")
+
+
+@router.get(
+    "/{worker_id}/strategy/param-overrides",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+)
+@handle_worker_exceptions("获取策略参数覆盖")
+async def get_strategy_param_overrides(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取按标的策略参数覆盖（config.strategy_params_by_symbol，spec 2026-11-28 §3.3）"""
+    from . import crud
+
+    return schemas.ApiResponse(code=0, message="success", data=crud.get_worker_param_overrides(db, worker_id))
+
+
+@router.put(
+    "/{worker_id}/strategy/param-overrides",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(require_permission(Permission.WORKER_WRITE)), Depends(check_worker_permission)],
+)
+@handle_worker_exceptions("更新策略参数覆盖")
+async def update_strategy_param_overrides(
+    worker_id: int,
+    request: schemas.WorkerParamOverridesUpdate,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """更新按标的策略参数覆盖（整体替换；键服务端规范化，spec 2026-11-28 §3.3）"""
+    from . import crud
+
+    crud.update_worker_param_overrides(db, worker_id, request.overrides)
+    return schemas.ApiResponse(code=0, message="参数覆盖更新成功")
 
 
 # ==================== 人工风控管控 ====================

@@ -367,6 +367,12 @@ class PricePlanPreviewRequest(BaseSchema):
     strategy_name: str = Field(..., description="策略模块名（注册表 name）")
     params: dict[str, Any] = Field(default_factory=dict, description="参数覆盖；缺省用策略默认参数")
     ref_price: float | None = Field(None, description="参考价（最新收盘）；缺省回退 params.ref_price")
+    # 按标的覆盖（spec 2026-11-28）：symbol 指定本标的、params_by_symbol 为覆盖表，
+    # 服务端 resolve_strategy_params 合并后计算；不传 = 行为与旧版完全一致
+    symbol: str | None = Field(None, description="标的（多标的预览指定当前标的，如 BTC/USDT）")
+    params_by_symbol: dict[str, dict[str, Any]] | None = Field(
+        None, description="按标的参数覆盖 {symbol: {param: value}}，与 params 合并后计算"
+    )
 
 
 @preview_router.post(
@@ -378,8 +384,12 @@ class PricePlanPreviewRequest(BaseSchema):
 async def preview_price_plan(body: PricePlanPreviewRequest):
     # strategy_name 会拼进文件路径（get_strategy/能 import 模块名），必须先过安全校验
     _validate_strategy_name(body.strategy_name)
+    # 合并唯一出口在 resolver：路由层只做请求边界解析，service 保持纯公式调用
+    from strategy.param_resolver import resolve_strategy_params
+
+    resolved = resolve_strategy_params(body.params, body.params_by_symbol, body.symbol)
     try:
-        plan = get_strategy_service().preview_price_plan(body.strategy_name, body.params, body.ref_price)
+        plan = get_strategy_service().preview_price_plan(body.strategy_name, resolved, body.ref_price)
     except PlanPreviewError as exc:
         # 预览显式失败统一 422：错误体带 code，前端区分 PLAN_UNSUPPORTED（隐藏入口）
         # 与 REF_PRICE_REQUIRED / PLAN_LOAD_FAILED / PLAN_NOT_FOUND（提示性错误）

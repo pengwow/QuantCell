@@ -121,6 +121,34 @@ class TestCoreServiceInProcessIntegration:
         assert created.config["strategy_params"] == {"levels": 8}
         mock_validate.assert_called_once()
 
+    def test_create_worker_stores_params_by_symbol_normalized(self):
+        """spec §3.1：params_by_symbol 落 config.strategy_params_by_symbol，键过 expand_symbol 规范化。"""
+        service = WorkerCoreService()
+        mock_db = MagicMock()
+        fake_worker = MagicMock()
+        fake_worker.to_dict.return_value = {"id": 1, "name": "w1"}
+        with (
+            patch.object(service, "get_db", return_value=mock_db),
+            patch.object(service, "_validate_and_fill_strategy") as mock_validate,
+            patch("worker.core_service.crud.create_worker", return_value=fake_worker) as mock_create,
+        ):
+            service.create_worker(
+                {
+                    "name": "w1",
+                    "trading_config": {"exchange": "binance"},
+                    "params": {"levels": 8},
+                    "params_by_symbol": {"BTCUSDT": {"lower": 100.0}, "ETHUSDT": {}},
+                }
+            )
+
+        created = mock_create.call_args.args[1]
+        assert created.config["strategy_params"] == {"levels": 8}
+        assert created.config["strategy_params_by_symbol"] == {
+            "BTC/USDT": {"lower": 100.0},
+            "ETH/USDT": {},
+        }
+        mock_validate.assert_called_once()
+
 
 class TestValidateAndFillStrategy:
     """创建/更新 Worker 时的策略引用校验与回填。"""

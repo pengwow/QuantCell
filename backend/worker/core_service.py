@@ -220,12 +220,23 @@ class WorkerCoreService:
         """
         try:
             with self.get_db() as db:
-                # spec §6：创建表单的 params 通道 —— 从顶层 dict 摘出塞进 config['strategy_params']，
-                # 启动时按「策略行参数 < worker params」合并（见 _do_start_strategy）。
+                # spec §6/2026-11-28：创建表单的参数通道 —— 从顶层 dict 摘出塞进 config：
+                # params → strategy_params（公共）、params_by_symbol → strategy_params_by_symbol（按标的）。
                 # 不能留在顶层：WorkerCreate extra="forbid" 会拒收，且易与命令参数混淆。
                 params_override = data.pop("params", None)
-                if params_override is not None:
-                    data["config"] = {**(data.get("config") or {}), "strategy_params": params_override}
+                by_symbol_override = data.pop("params_by_symbol", None)
+                if params_override is not None or by_symbol_override is not None:
+                    config = dict(data.get("config") or {})
+                    if params_override is not None:
+                        config["strategy_params"] = params_override
+                    if by_symbol_override is not None:
+                        # 函数内 import：worker 包与 strategy 包存在循环依赖（见 _persist_worker_price_plan 注释）
+                        from strategy.param_resolver import normalize_symbol_key
+
+                        config["strategy_params_by_symbol"] = {
+                            normalize_symbol_key(sym): dict(overrides) for sym, overrides in by_symbol_override.items()
+                        }
+                    data["config"] = config
                 # crud 层按 WorkerCreate schema 落库；这里把 dict 边界数据转成 schema，
                 # 与 update_worker 的 schemas.WorkerUpdate(**data) 保持一致，并让 extra="forbid" 生效
                 create_data = schemas.WorkerCreate(**data)
