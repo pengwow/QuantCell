@@ -18,6 +18,7 @@ Fetcher 复用 collector/services/deriv_collector.py 的实现：
 """
 
 import time
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -87,3 +88,73 @@ async def fetch_funding_history(symbol: str, limit: int) -> list[dict[str, Any]]
         {"timestamp": int(row["timestamp"]), "fundingRate": float(row["fundingRate"])}
         for _, row in df.tail(limit).iterrows()
     ]
+
+
+# ---------------------------------------------------------------------------
+# 实时最新价（价格计划参考价自动预览）
+# ---------------------------------------------------------------------------
+
+# Binance 公共 ticker：spot/margin 走现货 API，futures 走 U 本位合约 API，均无需鉴权
+SPOT_TICKER_URL = "https://api.binance.com/api/v3/ticker/price"
+FUTURES_TICKER_URL = "https://fapi.binance.com/fapi/v1/ticker/price"
+
+# 市场类型 → endpoint 映射；margin 保证金交易行情与现货一致，直接复用现货 ticker
+_TICKER_URLS: dict[str, str] = {
+    "spot": SPOT_TICKER_URL,
+    "margin": SPOT_TICKER_URL,
+    "futures": FUTURES_TICKER_URL,
+}
+
+# 30s 微缓存：只缓存成功结果，失败不缓存（重试继续打交易所如实暴露问题）。
+# ponytail: 进程内 dict 无淘汰——调用方是人工打开弹窗时的预览，key 组合
+# （exchange|symbol|market_type）有限不会膨胀；将来若变高频再换 LRU。
+_PRICE_CACHE: dict[str, tuple[float, dict]] = {}
+_PRICE_CACHE_TTL_SECONDS = 30.0
+
+
+class UnsupportedExchangeError(ValueError):
+    """请求的交易所/市场类型不在实时行情支持范围内（路由层转 400）"""
+
+
+async def fetch_latest_price(
+    symbol: str,
+    market_type: str = "spot",
+    exchange: str = "binance",
+) -> dict:
+    """回源交易所公共 ticker 取实时最新价。
+
+    仅实时数据，不做本地 DB 降级：策略要在交易所真实使用，交易所不可达本身就
+    是要暴露的问题；取价失败向上抛原始异常，由路由层转 502。
+    """
+    if exchange != "binance":
+        raise UnsupportedExchangeError(f"暂不支持交易所 {exchange} 的实时行情")
+    url = _TICKER_URLS.get(market_type)
+    if url is None:
+        raise UnsupportedExchangeError(f"暂不支持市场类型 {market_type} 的实时行情")
+
+    clean_symbol = symbol.replace("/", "").replace(":", "").upper()
+    cache_key = f"{exchange}|{clean_symbol}|{market_type}"
+    now = time.monotonic()
+    cached = _PRICE_CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return dict(cached[1])
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            url,
+            params={"symbol": clean_symbol},
+            proxy=resolve_proxy(),
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            resp.raise_for_status()
+            payload = await resp.json()
+
+    result = {
+        "symbol": clean_symbol,
+        "price": float(payload["price"]),
+        # 项目时间戳规范要求纳秒精度；stdlib isoformat 只支持到微秒（6 位），
+        # 在小数段尾部补零 3 位凑足 9 位纳秒（等价于无人为精度损失）
+        "ts": datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "000+00:00"),
+    }
+    _PRICE_CACHE[cache_key] = (now + _PRICE_CACHE_TTL_SECONDS, result)
+    return dict(result)

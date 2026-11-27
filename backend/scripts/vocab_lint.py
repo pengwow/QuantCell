@@ -92,6 +92,7 @@ TERM_RULES: dict[str, dict] = {
             r"trading_mode|tradingMode|TradingMode",  # trading_mode 值域含 "margin"，键本身合法
             r"margin_type|marginType",  # set_margin_type 是交易所接口命名
             r"value:\s*[\"']margin[\"']",  # 下拉选项 { value: 'margin' }，UI 值域
+            r"[\"']margin[\"']\s*:",  # market_type 值域 dict 键（spot/margin/futures 行情分类契约）
             r"margin\.rs",  # axon-quant 源文件名的文档引用
             r"asset_type, base, quote, margin",  # axon_bridge instrument 元组的文档注释
             r"Column\([\"']margin_ratio",  # alembic 历史迁移里的 DB 列（列保留，ORM 层已删）
