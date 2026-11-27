@@ -25,4 +25,5 @@
 | 插件注册的动态路由（`pluginRegistry`） | 插件页 | 按插件单独补 | ⏳ | 按需 | 安装对应插件 |
 | `POST /api/v1/strategies/preview`（后端 API，无独立前端页） | 价格计划预览 | `pages/strategy-worker.md`（W32-W34；另见 chart C14 / backtest B34。编辑器 tab 已于 2026-11-27 移除） | ✅ | L1 | token 注入；需实现 price_plan 协议的策略 |
 | `GET /api/v1/marketdata/price`（后端 API，无独立前端页） | 实时参考价：价格计划自动预览取价通道（binance 公共 ticker 回源，30s 只缓存成功结果） | `pages/strategy-worker.md`（W32/W34） | ✅ | L1 | 仅实时数据无降级（502 如实暴露）；未支持交易所/市场类型 400 |
-| `GET /api/v1/workers/{id}/plan`（后端 API，无独立前端页） | Worker 价格计划运行态 | `pages/strategy-worker.md`（W35-W36） | ✅ | L1 | token 注入；需已启动并被固化 price_plan 的运行中 Worker |
+| `GET /api/v1/marketdata/klines`（后端 API，无独立前端页） | 真实K线：价格计划预览回源（binance 公共 REST，spot/margin → api / futures → fapi；interval 白名单，limit 1-500 缺省 120；无缓存） | `pages/strategy-worker.md`（W32/W34/W35/W37） | ✅ | L1 | 回源失败 502 不降级；周期非法 422；未支持交易所/市场类型 400 |
+| `GET /api/v1/workers/{id}/plan`（后端 API，无独立前端页） | Worker 价格计划运行态（`?symbol=` 按标的取快照；响应含 `symbols` 全标的固化状态） | `pages/strategy-worker.md`（W35-W36） | ✅ | L1 | token 注入；需已启动并被固化 price_plan 的运行中 Worker |
