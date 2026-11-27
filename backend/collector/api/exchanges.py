@@ -15,7 +15,6 @@ from exchange import SUPPORTED_EXCHANGES
 
 # 使用 exchange 模块的连通性测试服务（已从 collector 迁移）
 from exchange.connection import create_exchange_instance, test_exchange_connection
-from settings.models import SystemConfigBusiness
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -461,6 +460,10 @@ def _build_snapshot(exchange_id: str, eff_env: str) -> dict | None:
 
     paper / 未配置密钥 → 返回 configured=false 前端空态载荷；真实拉取 → 完整快照。
     """
+    # 函数内 import：settings/models.py 的 db 层反向 import collector 包，模块级
+    # from settings.models import ... 会在加载 collector 时形成循环导入。
+    from settings.models import SystemConfigBusiness
+
     cfg = SystemConfigBusiness.get_all_flattened_by_prefix("exchange").get(exchange_id) or {}
     mode = _norm_trading_mode(str(cfg.get("trading_mode") or "spot"))
     quote = str(cfg.get("quote_currency") or "USDT")
@@ -516,11 +519,11 @@ def get_exchange_account_snapshot(exchange_id: str = "binance", env: str = "", r
     - 不传时沿用已保存的 trading_environment
     - 缓存：命中立即返回（数据可能为后台定时同步前的旧值，fetchedAt 字段如实反映）；
       refresh=true（页面手动刷新）强制拉新
-
     未配置密钥时返回 code=0 + configured=false（前端展示引导空态，而非报错）。
     """
-    if exchange_id not in SUPPORTED_EXCHANGES:
-        return ApiResponse(code=404, message=f"不支持的交易所: {exchange_id}", data=None)
+    # 函数内 import：settings/models.py 的 db 层反向 import collector 包，模块级
+    # from settings.models import ... 会在加载 collector 时形成循环导入。
+    from settings.models import SystemConfigBusiness
 
     cfg = SystemConfigBusiness.get_all_flattened_by_prefix("exchange").get(exchange_id) or {}
     # env 覆盖：设置页可能正在查看未保存的环境，入口链接把 UI 状态显式带给本接口
