@@ -14,10 +14,7 @@ import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 
 import collector.db.database as db_module
-
-# Worker.relationship("Strategy") 是字符串引用，两个 mapper 模块都注册后 configure 才能通过
-import strategy.models
-import worker.models
+import strategy.models  # 注册 strategies 表，workers.strategy_id 外键才能解析
 from backtest.standalone_downloader import StandaloneDataDownloader
 from collector.db.database import Base
 from collector.db.models import CryptoSpotKline
@@ -32,23 +29,12 @@ def _day_ns(date: str) -> list[int]:
 
 def test_save_to_database_writes_nanoseconds(tmp_path, monkeypatch):
     engine = sqlalchemy.create_engine(f"sqlite:///{tmp_path}/t.db")
-    # 只建本测试需要的表，避免 Base.metadata 上挂着的 workers 等无关模块
-    # 外键在纯 sqlite 内存库上触发 NoReferencedTableError
-    Base.metadata.create_all(engine, tables=[CryptoSpotKline.__table__])
-    # sqlite 隐式 UNIQUE 不会生成具名索引；_save_to_database 用了
-    # on_conflict_do_nothing(index_elements=["unique_kline"])，需补索引
-    with engine.begin() as conn:
-        conn.execute(
-            sqlalchemy.text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_crypto_spot_klines_unique_kline "
-                "ON crypto_spot_klines (unique_kline)"
-            )
-        )
+    Base.metadata.create_all(engine)
     monkeypatch.setattr(db_module, "init_database_config", lambda: None)
     monkeypatch.setattr(db_module, "engine", engine, raising=False)
     monkeypatch.setattr(db_module, "SessionLocal", sessionmaker(bind=engine), raising=False)
 
-    downloader = StandaloneDataDownloader(save_local=False)
+    downloader = StandaloneDataDownloader()
     open_ms = int(datetime(2026, 5, 1, 0, 0).timestamp() * 1000)
     df = pd.DataFrame(
         {
@@ -70,7 +56,7 @@ def test_save_to_database_writes_nanoseconds(tmp_path, monkeypatch):
 
 def test_check_data_exists_reads_source_parquet(tmp_path, monkeypatch):
     monkeypatch.setattr("utils.data_utils.get_source_data_dir", lambda: tmp_path)
-    downloader = StandaloneDataDownloader(save_local=False)
+    downloader = StandaloneDataDownloader()
 
     assert downloader._check_data_exists("ETHUSDT", "15m", "2026-05-01", "spot") is False
 
@@ -84,7 +70,7 @@ def test_check_data_exists_reads_source_parquet(tmp_path, monkeypatch):
 
 def test_check_data_exists_um_maps_to_future(tmp_path, monkeypatch):
     monkeypatch.setattr("utils.data_utils.get_source_data_dir", lambda: tmp_path)
-    downloader = StandaloneDataDownloader(save_local=False)
+    downloader = StandaloneDataDownloader()
 
     file_path = tmp_path / "crypto" / "future" / "klines" / "15m" / "ETHUSDT.parquet"
     file_path.parent.mkdir(parents=True, exist_ok=True)

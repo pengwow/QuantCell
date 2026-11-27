@@ -4,31 +4,47 @@
 提供不依赖 FastAPI 服务的数据下载功能，包括：
 - 直接从币安/OKX 下载数据
 - 直接保存到数据库
-- 本地 Parquet 格式存储（可选）
+- 合并写入 source 单文件 Parquet（回测实际读取口径）
 - 实时进度更新
 - 失败重试机制
 """
 
 import asyncio
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-
-from utils.data_utils import _find_parquet_file, _infer_ts_scale
-from utils.logger import LogType, get_logger
-from utils.parquet_utils import append_to_parquet, load_from_parquet
-
-# 获取模块日志器
-logger = get_logger(__name__, LogType.APPLICATION)
 from typing import TYPE_CHECKING
 
 from collector.db.models import decimal_or_zero
 from exchange.binance.downloader import BinanceDownloader
+from utils.data_utils import _find_parquet_file, _infer_ts_scale
+from utils.logger import LogType, get_logger
+from utils.parquet_utils import append_to_parquet, load_from_parquet
 from utils.time_parser import get_date_range
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# source parquet 合并锁
+# ---------------------------------------------------------------------------
+
+# 进程内按 (symbol, interval, market_dir) 粒度的合并锁，防止并发下载同一文件互相覆盖
+# ponytail: 仅进程内互斥；多进程下载方（uvicorn 多 worker/子进程池）无防护，
+# 靠 append_to_parquet 的时间戳去重兜底。若出现多进程写同一文件的场景，升级为 fcntl 文件锁
+_merge_locks: dict[str, threading.Lock] = {}
+_merge_locks_guard = threading.Lock()
+
+
+def _merge_lock(key: str) -> threading.Lock:
+    with _merge_locks_guard:
+        return _merge_locks.setdefault(key, threading.Lock())
 
 
 class StandaloneDownloadProgress:
@@ -37,7 +53,7 @@ class StandaloneDownloadProgress:
     def __init__(self, symbol: str, interval: str):
         self.symbol = symbol
         self.interval = interval
-        self.status: str = "pending"  # pending, downloading, completed, failed
+        self.status: str = "pending"
         self.progress: float = 0.0
         self.message: str = "等待下载"
         self.current_date: str | None = None
@@ -66,23 +82,10 @@ class StandaloneDownloadProgress:
 class StandaloneDataDownloader:
     """独立数据下载器，不依赖 FastAPI 服务"""
 
-    def __init__(self, save_local: bool = True):
-        """
-        初始化独立下载器
-
-        Args:
-            save_local: 是否同时保存到本地 Parquet 文件（默认 True）
-        """
-        # 使用临时目录作为保存路径（数据实际直接保存到数据库）
+    def __init__(self):
+        """初始化独立下载器（数据落库为副本，并合并进回测读取的 source Parquet）"""
         self.temp_dir = Path(__file__).parent.parent / "data" / "temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-
-        # 新增：初始化本地存储路径
-        self.save_local = save_local
-        self.local_storage_dir = Path.home() / ".quantcell" / "data" / "kline"
-        if save_local:
-            self.local_storage_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"本地存储目录: {self.local_storage_dir}")
 
         # 延迟初始化下载器，避免在初始化时调用API获取交易对列表
         self._spot_downloader = None
@@ -92,11 +95,10 @@ class StandaloneDataDownloader:
     def spot_downloader(self):
         """延迟初始化现货下载器"""
         if self._spot_downloader is None:
-            # 传入空列表作为symbols，避免调用API获取全量交易对
             self._spot_downloader = BinanceDownloader(
                 save_dir=self.temp_dir,
                 candle_type="spot",
-                symbols=[],  # 传入空列表，避免调用get_all_symbols
+                symbols=[],
             )
         return self._spot_downloader
 
@@ -104,13 +106,16 @@ class StandaloneDataDownloader:
     def futures_downloader(self):
         """延迟初始化合约下载器"""
         if self._futures_downloader is None:
-            # 传入空列表作为symbols，避免调用API获取全量交易对
             self._futures_downloader = BinanceDownloader(
                 save_dir=self.temp_dir,
                 candle_type="futures",
-                symbols=[],  # 传入空列表，避免调用get_all_symbols
+                symbols=[],
             )
         return self._futures_downloader
+
+    # ------------------------------------------------------------------
+    # 主下载入口
+    # ------------------------------------------------------------------
 
     async def download_data(
         self,
@@ -122,7 +127,7 @@ class StandaloneDataDownloader:
         progress_callback: Callable[[StandaloneDownloadProgress], None] | None = None,
     ) -> bool:
         """
-        直接下载数据到数据库
+        直接下载数据到数据库与 source parquet
 
         参数：
             symbol: 交易对（如 BTCUSDT）
@@ -135,20 +140,15 @@ class StandaloneDataDownloader:
         返回：
             bool: 是否下载成功
         """
-        # 标准化symbol格式
         normalized_symbol = symbol.replace("/", "")
-
-        # 选择下载器
         downloader = self.spot_downloader if crypto_type == "spot" else self.futures_downloader
 
-        # 创建进度追踪
         progress = StandaloneDownloadProgress(normalized_symbol, interval)
         progress.update(status="downloading", message="开始下载数据")
         if progress_callback:
             progress_callback(progress)
 
         try:
-            # 获取日期范围
             start_date = start_time.strftime("%Y-%m-%d")
             end_date = end_time.strftime("%Y-%m-%d")
             date_range = get_date_range(start_date, end_date)
@@ -159,7 +159,6 @@ class StandaloneDataDownloader:
                 f"日期范围: {start_date} ~ {end_date}，共 {len(date_range)} 天"
             )
 
-            # 逐日下载
             success_count = 0
             skipped_count = 0
             for idx, date in enumerate(date_range):
@@ -174,23 +173,21 @@ class StandaloneDataDownloader:
                         progress.progress = (idx / len(date_range)) * 100
                         progress_callback(progress)
 
-                    # 检查数据库中是否已有该日期的数据
+                    # skip 目标是回测实际读的 source parquet，不是 DB 副本
                     if self._check_data_exists(normalized_symbol, interval, date, crypto_type):
                         logger.info(f"✓ {date} 数据已存在，跳过下载")
                         skipped_count += 1
-                        success_count += 1  # 已存在也算成功
+                        success_count += 1
                         continue
 
-                    # 下载单日数据
                     df = await downloader.get_daily_klines(normalized_symbol, interval, date)
 
                     if df is not None and not df.empty:
-                        # 直接保存到数据库
+                        # 落库为副本口径
                         self._save_to_database(df, normalized_symbol, interval, crypto_type)
 
-                        # 新增：同时保存到本地 Parquet 文件（可选）
-                        if self.save_local:
-                            self._save_to_local_file(df, normalized_symbol, interval, date, crypto_type)
+                        # 合并进回测实际读取的 source Parquet（检查/回测同源闭环）
+                        self._merge_to_source_parquet(df, normalized_symbol, interval, crypto_type)
 
                         success_count += 1
                         logger.info(f"✓ {date} 数据下载成功: {len(df)} 条")
@@ -201,7 +198,6 @@ class StandaloneDataDownloader:
                     logger.error(f"✗ {date} 下载失败: {e}")
                     continue
 
-            # 更新最终进度
             progress.update(
                 status="completed" if success_count > 0 else "failed",
                 progress=100.0,
@@ -224,6 +220,10 @@ class StandaloneDataDownloader:
                 progress_callback(progress)
             return False
 
+    # ------------------------------------------------------------------
+    # 存在性检查（查 source parquet）
+    # ------------------------------------------------------------------
+
     def _check_data_exists(self, symbol: str, interval: str, date: str, crypto_type: str) -> bool:
         """
         检查指定日期的数据是否已存在于回测实际读取的 source Parquet 文件
@@ -232,12 +232,6 @@ class StandaloneDataDownloader:
         parquet（与完整性检查/回测加载同源）。此前查 DB 且用毫秒整型过滤
         纳秒 BIGINT 列恒为 False（重复下载）；若改回查 DB，"DB 有但 parquet
         缺"的存量日期会被永远 skip，检查永远报缺。
-
-        参数：
-            symbol: 交易对
-            interval: 时间周期
-            date: 日期字符串 (YYYY-MM-DD)
-            crypto_type: 交易类型（spot/um/cm）
         """
         try:
             market_dir = "spot" if crypto_type == "spot" else "future"
@@ -262,48 +256,68 @@ class StandaloneDataDownloader:
             logger.error(f"检查数据存在性失败: {e}")
             return False
 
+    # ------------------------------------------------------------------
+    # source parquet 合并写入
+    # ------------------------------------------------------------------
+
+    def _merge_to_source_parquet(self, df: pd.DataFrame, symbol: str, interval: str, crypto_type: str) -> bool:
+        """
+        把新下载的 K 线合并进回测实际读取的 source 单文件 Parquet
+
+        这是"自动下载→回测可用"闭环的落盘端：完整性检查与回测加载读的都是
+        这个文件，只写 DB 不写它就会出现"下载完成仍报不完整"。
+
+        只保留回测需要的 7 列；同时间戳以新行为准（append_to_parquet 的
+        keep="last"），老文件多出的辅助列在新行上是 NaN，对 OHLCV 驱动的
+        回测无实质影响。
+        """
+        try:
+            merge_df = df[["open_time", "open", "high", "low", "close", "volume"]].copy()
+
+            # open_time 单位不定（Binance K 线为毫秒），统一换算为纳秒命名 timestamp，
+            # 与存量 source 文件的纳秒口径对齐（混单位会让排序/过滤把新数据漂移到过去）
+            open_time = merge_df.pop("open_time").astype("int64")
+            scale = _infer_ts_scale(float(open_time.max()))
+            merge_df["timestamp"] = open_time * (1_000_000_000 // scale)
+            merge_df["symbol"] = symbol
+            merge_df = merge_df[["timestamp", "open", "high", "low", "close", "volume", "symbol"]]
+
+            market_dir = "spot" if crypto_type == "spot" else "future"
+            file_path = _find_parquet_file(symbol, interval, market_dir)
+
+            with _merge_lock(f"{symbol}_{interval}_{market_dir}"):
+                return append_to_parquet(merge_df, file_path)
+
+        except Exception as e:
+            logger.error(f"合并到 source Parquet 失败: {symbol} {interval}: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # DB 副本写入（timestamp 纳秒整型）
+    # ------------------------------------------------------------------
+
     def _save_to_database(self, df: pd.DataFrame, symbol: str, interval: str, crypto_type: str) -> bool:
-        """
-        保存数据到数据库
-
-        参数：
-            df: K线数据DataFrame
-            symbol: 交易对
-            interval: 时间周期
-            crypto_type: 交易类型
-
-        返回：
-            bool: 是否保存成功
-        """
+        """保存数据到数据库（副本口径，供数据管理页查询）"""
         from collector.db.database import SessionLocal, init_database_config
         from collector.db.models import CryptoFutureKline, CryptoSpotKline
 
         try:
-            # 初始化数据库配置
             init_database_config()
 
-            # 重新导入引擎（确保获取最新值）
             from collector.db.database import engine as db_engine
 
-            # 确保引擎已创建
             if db_engine is None:
                 logger.error("数据库引擎未初始化")
                 return False
 
-            # 创建会话（显式绑定引擎）
             db = SessionLocal(bind=db_engine)
 
             try:
-                # 选择模型
                 Model = CryptoSpotKline if crypto_type == "spot" else CryptoFutureKline
 
-                # 准备记录
                 records = []
                 for _, row in df.iterrows():
-                    # 转换时间戳（毫秒）
                     timestamp_ms = int(row["open_time"])
-
-                    # 生成唯一标识符
                     unique_kline = f"{symbol}_{interval}_{timestamp_ms}"
 
                     records.append(
@@ -313,7 +327,6 @@ class StandaloneDataDownloader:
                             # P2-14 起 timestamp 列为 BIGINT 纳秒整型；open_time 是毫秒，
                             # 落库统一转纳秒（此前写 str(毫秒) 造成口径错配、按时间查询必空）
                             "timestamp": timestamp_ms * 1_000_000,
-                            # OHLC DECIMAL 列：写入统一 decimal_or_zero，与 volume 同口径（P2-11）
                             "open": decimal_or_zero(row["open"]),
                             "high": decimal_or_zero(row["high"]),
                             "low": decimal_or_zero(row["low"]),
@@ -324,13 +337,10 @@ class StandaloneDataDownloader:
                         }
                     )
 
-                # 批量保存（使用INSERT OR IGNORE避免重复）
                 if records:
                     from sqlalchemy.dialects.sqlite import insert
 
-                    # 构建INSERT语句
                     stmt = insert(Model).values(records)
-                    # 添加ON CONFLICT DO NOTHING子句
                     stmt = stmt.on_conflict_do_nothing(index_elements=["unique_kline"])
 
                     result = db.execute(stmt)
@@ -339,7 +349,6 @@ class StandaloneDataDownloader:
                         f"[_save_to_database] 保存 {len(records)} 条记录到数据库: {symbol} {interval}, 影响行数: {result.rowcount}"
                     )
 
-                    # 验证数据是否真的写入
                     verify_count = db.query(Model).filter(Model.symbol == symbol, Model.interval == interval).count()
                     logger.info(f"[_save_to_database] 验证: 数据库中 {symbol} {interval} 共有 {verify_count} 条记录")
 
@@ -358,41 +367,9 @@ class StandaloneDataDownloader:
             logger.error(f"数据库操作失败: {e}")
             return False
 
-    def _save_to_local_file(self, df: pd.DataFrame, symbol: str, interval: str, date: str, crypto_type: str) -> bool:
-        """
-        保存数据到本地 Parquet 文件
-
-        按日期分片存储，支持增量更新。
-
-        Args:
-            df: K线数据DataFrame
-            symbol: 交易对
-            interval: 时间周期
-            date: 日期字符串 (YYYY-MM-DD)
-            crypto_type: 交易类型
-
-        Returns:
-            bool: 是否保存成功
-        """
-        try:
-            # 构建存储路径：{base_dir}/{crypto_type}/{symbol}/{interval}/{date}.parquet
-            storage_type = "spot" if crypto_type == "spot" else "futures"
-            file_dir = self.local_storage_dir / storage_type / symbol / interval
-            file_path = file_dir / f"{date}.parquet"
-
-            # 使用 append_to_parquet 支持增量更新（读取-合并-重写）
-            success = append_to_parquet(df, file_path)
-
-            if success:
-                logger.info(f"已保存到本地文件: {file_path} ({len(df)} 行)")
-                return True
-            else:
-                logger.error(f"保存到本地文件失败: {file_path}")
-                return False
-
-        except Exception as e:
-            logger.error(f"保存本地文件异常: {e}")
-            return False
+    # ------------------------------------------------------------------
+    # 同步接口
+    # ------------------------------------------------------------------
 
     def download_sync(
         self,
@@ -403,20 +380,7 @@ class StandaloneDataDownloader:
         crypto_type: str = "spot",
         progress_callback: Callable[[StandaloneDownloadProgress], None] | None = None,
     ) -> bool:
-        """
-        同步接口下载数据
-
-        参数：
-            symbol: 交易对
-            interval: 时间周期
-            start_time: 开始时间
-            end_time: 结束时间
-            crypto_type: 交易类型
-            progress_callback: 进度回调函数
-
-        返回：
-            bool: 是否下载成功
-        """
+        """同步接口下载数据"""
         return asyncio.run(
             self.download_data(
                 symbol=symbol,
