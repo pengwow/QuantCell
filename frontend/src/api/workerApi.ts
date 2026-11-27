@@ -121,9 +121,17 @@ export const batchOperation = (data: BatchOperationRequest): Promise<BatchOperat
 /**
  * 启动 Worker
  * @param workerId Worker ID
+ * @param refPrice 参考价（有价格计划的策略：随启动请求固化计划锚点，Task 5 start 链路消费）
  */
-export const startWorker = (workerId: number): Promise<{ task_id: string; status: string }> => {
-  return apiRequest.post(`/workers/${workerId}/lifecycle/start`);
+export const startWorker = (
+  workerId: number,
+  refPrice?: number,
+): Promise<{ task_id: string; status: string }> => {
+  // ref_price 缺省时不带 body：无价格计划策略 / 未升级链路行为不变
+  return apiRequest.post(
+    `/workers/${workerId}/lifecycle/start`,
+    refPrice == null ? undefined : { ref_price: refPrice },
+  );
 };
 
 /**

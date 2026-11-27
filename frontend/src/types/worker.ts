@@ -93,6 +93,8 @@ export interface StrategyInfo {
   factors?: unknown[];
   created_at?: string;
   updated_at?: string;
+  /** 后端 /strategy/list 注入（Task 4）：策略是否声明 price_plan 方法 */
+  has_price_plan?: boolean;
 }
 
 // Worker基础信息

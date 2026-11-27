@@ -3960,5 +3960,10 @@
   "pricePlan.editor_override_invalid": "Invalid JSON overrides, ignored",
   "pricePlan.editor_plan_preview": "Price plan preview",
   "pricePlan.editor_tab_label": "Price plan",
-  "pricePlan.editor_rl_unsupported": "RL strategies do not support price plan preview yet"
+  "pricePlan.editor_rl_unsupported": "RL strategies do not support price plan preview yet",
+  "pricePlan.worker_ref_price": "Ref price",
+  "pricePlan.worker_ref_price_required": "Ref price is required — it will be locked as the plan anchor on start",
+  "pricePlan.worker_confirm_title": "Confirm start: {{name}}",
+  "pricePlan.create_self_check_title": "Price plan self-check",
+  "pricePlan.create_override_placeholder": "Params override JSON (optional)"
 }

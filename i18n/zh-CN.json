@@ -3960,5 +3960,10 @@
   "pricePlan.editor_override_invalid": "参数覆盖不是合法 JSON，已忽略",
   "pricePlan.editor_plan_preview": "价格计划预览",
   "pricePlan.editor_tab_label": "价格计划",
-  "pricePlan.editor_rl_unsupported": "RL 策略暂不支持价格计划预览"
+  "pricePlan.editor_rl_unsupported": "RL 策略暂不支持价格计划预览",
+  "pricePlan.worker_ref_price": "参考价",
+  "pricePlan.worker_ref_price_required": "请先填写参考价——启动后它将作为价格计划锚点固化",
+  "pricePlan.worker_confirm_title": "启动确认：{{name}}",
+  "pricePlan.create_self_check_title": "价格计划自检",
+  "pricePlan.create_override_placeholder": "参数覆盖 JSON（可空）"
 }

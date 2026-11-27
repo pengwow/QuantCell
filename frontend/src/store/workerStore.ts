@@ -94,7 +94,8 @@ interface WorkerActions {
   cloneWorker: (workerId: number, newName: string) => Promise<Worker | null>;
 
   // 生命周期控制
-  startWorker: (workerId: number) => Promise<boolean>;
+  /** refPrice：有价格计划的策略启动时锚定计划（透传给 lifecycle/start 的 body） */
+  startWorker: (workerId: number, refPrice?: number) => Promise<boolean>;
   stopWorker: (workerId: number) => Promise<boolean>;
   restartWorker: (workerId: number) => Promise<boolean>;
 
@@ -357,9 +358,9 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       // 生命周期控制
       // ============================================
 
-      startWorker: async (workerId) => {
+      startWorker: async (workerId, refPrice) => {
         try {
-          await workerApi.startWorker(workerId);
+          await workerApi.startWorker(workerId, refPrice);
           get().messageApi?.success('Worker启动中');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'starting');

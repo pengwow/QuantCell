@@ -37,7 +37,9 @@ import {
 } from '@ant-design/icons';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
+import StartPlanConfirm from '../../components/worker/StartPlanConfirm';
 import { triggerOptimize } from '../../api/workerApi';
+import { strategyApi } from '../../api';
 import type { Worker as WorkerType, ApiResponse } from '../../types/worker';
 import { WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
@@ -189,47 +191,98 @@ const Worker = () => {
   // 筛选条件变化时回到第一页（避免过滤后停留在超出范围的页码）
   const gotoPage1 = () => setPagination((p) => ({ ...p, current: 1 }));
 
-  // Event handlers
-  const handleStart = useCallback(async (worker: WorkerType) => {
-    // 防重复点击
-    if (submittingWorkerIds.has(worker.id)) return;
-    setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
+  // ============================================
+  // 单个 Worker 启动：价格计划探测 → 确认弹窗 → 实际启动
+  // ============================================
 
-    try {
-      await startWorker(worker.id);
-      apiMessage.success(t('worker_start_success'));
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : t('unknown_error');
+  // 实际启动动作（原 handleStart 主体，防抖/错误分类/成功提示原样保留）：
+  // refPrice 有值时随启动请求固化价格计划锚点（无计划策略不传，行为不变）
+  const doStart = useCallback(
+    async (worker: WorkerType, refPrice?: number) => {
+      // 防重复点击
+      if (submittingWorkerIds.has(worker.id)) return;
+      setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
 
-      if (
-        errorMsg.includes('非法状态转换') ||
-        errorMsg.includes('can_transition') ||
-        errorMsg.includes('cannot transition')
-      ) {
-        apiMessage.warning({
-          content: (
-            <div>
-              <div><strong>{worker.name}</strong> {t('worker_cannot_start_now')}</div>
-              <div style={{ fontSize: 12, color: 'var(--qc-text-secondary)', marginTop: 4 }}>
-                {t('worker_reason_label', { message: errorMsg })}
+      try {
+        await startWorker(worker.id, refPrice);
+        apiMessage.success(t('worker_start_success'));
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message || error.toString() : error != null ? String(error) : t('unknown_error');
+
+        if (
+          errorMsg.includes('非法状态转换') ||
+          errorMsg.includes('can_transition') ||
+          errorMsg.includes('cannot transition')
+        ) {
+          apiMessage.warning({
+            content: (
+              <div>
+                <div><strong>{worker.name}</strong> {t('worker_cannot_start_now')}</div>
+                <div style={{ fontSize: 12, color: 'var(--qc-text-secondary)', marginTop: 4 }}>
+                  {t('worker_reason_label', { message: errorMsg })}
+                </div>
               </div>
-            </div>
-          ),
-          duration: 5,
+            ),
+            duration: 5,
+          });
+        } else if (errorMsg.includes('already running') || errorMsg.includes('已在运行')) {
+          apiMessage.info(t('worker_already_running', { name: worker.name }));
+        } else {
+          apiMessage.error(t('worker_start_failed', { message: errorMsg }));
+        }
+      } finally {
+        setSubmittingWorkerIds((prev) => {
+          const next = new Set(prev);
+          next.delete(worker.id);
+          return next;
         });
-      } else if (errorMsg.includes('already running') || errorMsg.includes('已在运行')) {
-        apiMessage.info(t('worker_already_running', { name: worker.name }));
-      } else {
-        apiMessage.error(t('worker_start_failed', { message: errorMsg }));
       }
-    } finally {
-      setSubmittingWorkerIds((prev) => {
-        const next = new Set(prev);
-        next.delete(worker.id);
-        return next;
+    },
+    [startWorker, t, apiMessage, submittingWorkerIds],
+  );
+
+  const handleStart = useCallback(
+    async (worker: WorkerType) => {
+      if (submittingWorkerIds.has(worker.id)) return;
+
+      // 价格计划探测：拉策略详情看 has_price_plan（POST /strategy/detail）；
+      // 探测失败按无计划处理——预览层故障不得阻断启动，直接走原行为
+      const name = worker.strategy_info?.name;
+      let hasPlan = false;
+      if (name) {
+        try {
+          const detail = (await strategyApi.getStrategyDetail(name)) as {
+            has_price_plan?: boolean;
+          } | null;
+          hasPlan = !!detail?.has_price_plan;
+        } catch {
+          hasPlan = false;
+        }
+      }
+      if (!hasPlan) {
+        await doStart(worker);
+        return;
+      }
+
+      // 有计划：确认弹窗。onOk 返回 rejection 时 antd 保持弹窗打开，形成「必须填参考价才能启动」闭环。
+      // params 传空对象：worker 响应不含策略参数字段，默认值由后端 preview resolved merge 按策略文件补齐
+      const refPriceRef: { current: number | null } = { current: null };
+      modal.confirm({
+        title: t('pricePlan.worker_confirm_title', { name: worker.name }),
+        width: 520,
+        icon: null,
+        content: <StartPlanConfirm strategyName={name as string} params={{}} refPriceRef={refPriceRef} />,
+        onOk: async () => {
+          if (refPriceRef.current == null) {
+            apiMessage.warning(t('pricePlan.worker_ref_price_required'));
+            throw new Error('ref_price required');
+          }
+          await doStart(worker, refPriceRef.current);
+        },
       });
-    }
-  }, [startWorker, t, apiMessage, submittingWorkerIds]);
+    },
+    [submittingWorkerIds, doStart, modal, t, apiMessage],
+  );
 
   const handleStop = useCallback(async (worker: WorkerType) => {
     if (submittingWorkerIds.has(worker.id)) return;
