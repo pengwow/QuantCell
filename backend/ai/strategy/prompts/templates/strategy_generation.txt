@@ -103,11 +103,31 @@ ctx 是 StrategyContext：
 - 不要在 `__init__` 参数里直接展开策略参数（走 `config.params`）
 - 不要使用 `ActionType.Buy` 等枚举传 action_type（Rust Action 构造器要求 str，用 `"buy"` / `"sell"` / `"hold"` / `"reduce_long"` / `"reduce_short"`）
 
+#### 5. 价格计划协议（可选：仅计划型策略实现）
+
+当用户需求是网格、分层马丁、按价位分批挂单这类「计划型策略」时，在策略类上额外声明 classmethod `price_plan`，平台据此在开跑前生成计划预览：
+
+```python
+from strategy.price_plan import grid_plan  # 公式唯一权威，禁止在本文件复制档位/仓位计算
+
+
+class {{strategy_name}}(BaseStrategy):
+    @classmethod
+    def price_plan(cls, params: dict, ref_price: float):
+        # params 即 config.params（已含默认值），ref_price 是启动参考价
+        return grid_plan(params, ref_price)
+```
+
+- 纯函数约束：`price_plan` 不做 IO、不用随机数、不读实例状态；同一入参必须返回同一结果。
+- 运行时语义：引擎在第一根 K 线用其 close 固化计划；价格越过计划边界后保持 hold；不要在策略内做区间自适应扩展。
+- 可用构件（从 `strategy.price_plan` 导入）：`grid_plan` / `martingale_plan` / `linear_levels`，以及 `PricePlan` 结果模型（仅当平台公式覆盖不了需求时才自行拼装 levels）。
+- 信号型策略（趋势 / 动量 / 均值回归等）不需要实现该方法，忽略本节即可。
+
 ### 输出要求（严格）
 
 1. **只输出代码**：直接输出 Python 代码，不要解释，不要 markdown 代码块标记。
 2. **完整可运行**：代码必须是完整的、可运行的策略类。
-3. **导入完整**：一行 `from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext` 即可。
+3. **导入完整**：一行 `from strategy import Action, BaseStrategy, StrategyConfig, StrategyContext` 即可（实现价格计划时另加一行 `from strategy.price_plan import ...`）。
 4. **命名规范**：策略类名使用 PascalCase。
 5. **参数通过 config.params**：不要在 `__init__` 里直接接收策略参数。
 
