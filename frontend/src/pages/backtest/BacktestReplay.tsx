@@ -21,8 +21,17 @@ import {
   Divider,
   Tooltip,
   Segmented,
+  Switch,
 } from 'antd';
 import TradeTable, { type Trade as TradeTableTrade } from '../../components/TradeTable';
+import { usePricePlan } from '../../hooks/usePricePlan';
+import {
+  drawPricePlanOverlays,
+  clearPricePlanOverlays,
+  planToOverlayLevels,
+} from '../../components/chart/pricePlanOverlays';
+// registerSignalTagOverlay：signalTag 模板注册在 ChartShell 模块里（全局注册表），回放页需自行注册
+import { registerSignalTagOverlay } from '../../components/chart/ChartShell';
 import {
   CaretRightOutlined,
   PauseOutlined,
@@ -209,6 +218,35 @@ const BacktestReplay = () => {
   const playTimerRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<number | null>(null);
 
+  // ===== 价格计划对照（spec ④）：叠加计划档位线（signalTag, source='pricePlan'），
+  // 与回放 fills 标记（jsonAnnotation）同图对照。开关默认关，不新增请求直到用户打开 =====
+  const [planOn, setPlanOn] = useState(false);
+  // 参考价 ≈ 回放首根收盘价（区间起点价）。ponytail: 精确口径是回测详情回传固化 ref_price，
+  // 当前 /backtests/{id}/replay 详情未带该字段；首根 close 近似已满足对照用途，
+  // 升级路径 = replay 详情加 ref_price 后在此直接用
+  const planRefPrice = (() => {
+    const first = replayData?.klines?.[0];
+    const close = Number(first?.close);
+    return Number.isFinite(close) && close > 0 ? close : null;
+  })();
+  const { data: planPreview } = usePricePlan({
+    strategyName: planOn ? replayData?.strategy_name ?? null : null,
+    params: {},
+    refPrice: planRefPrice,
+  });
+
+  useEffect(() => {
+    const chart = chartInstance.current;
+    if (!chart) return;
+    if (viewMode !== 'symbol' || !planOn) {
+      clearPricePlanOverlays(chart);
+      return;
+    }
+    // 端点铺满回放区间（toChartKlines 已把 klines 统一为 KLineData 形状）
+    drawPricePlanOverlays(chart, planToOverlayLevels(planPreview), toChartKlines(replayData?.klines ?? []));
+    // 依赖 viewMode：全局视角下无计划线（jsonAnnotation 只在 symbol 视角画），切回即恢复
+  }, [viewMode, planOn, planPreview, replayData]);
+
   // 注册语言包（文案经 i18n 求值，语言切换时重新注册；图表 locale 名保持 'zh-CN' 不变）
   useEffect(() => {
     registerLocale('zh-CN', {
@@ -356,6 +394,8 @@ const BacktestReplay = () => {
       if (typeof registerOverlay === 'function') {
         registerOverlay(jsonAnnotation);
       }
+      // signalTag 模板注册（幂等）：价格计划档位线 overlay 依赖它，未注册时 createOverlay 静默不画
+      registerSignalTagOverlay();
 
       const chart = init(chartRef.current, { locale: 'zh-CN' });
 
@@ -722,6 +762,12 @@ const BacktestReplay = () => {
                     </Option>
                   ))}
                 </Select>
+                {/* 价格计划对照开关（spec ④）：叠加计划档位线与回放实际成交对照 */}
+                <Tooltip title={t('pricePlan.chart_replay_switch_tooltip')}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    <Switch size="small" checked={planOn} onChange={setPlanOn} />
+                  </span>
+                </Tooltip>
               </Space>
             </Col>
 

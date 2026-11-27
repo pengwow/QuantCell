@@ -3976,5 +3976,10 @@
   "pricePlan.detail_empty_pending": "价格计划尚未固化——下次启动时在确认弹窗填写参考价即可固化",
   "pricePlan.chips_state_fixed": "计划已固化",
   "pricePlan.chips_state_pending": "计划待固化",
-  "pricePlan.chips_triggered": "已触发 {{n}}/{{total}}（{{p}}%）"
+  "pricePlan.chips_triggered": "已触发 {{n}}/{{total}}（{{p}}%）",
+  "pricePlan.chart_switch_label": "价格计划",
+  "pricePlan.chart_strategy_placeholder": "选择实现 price_plan 的策略",
+  "pricePlan.chart_no_strategies": "无可用策略",
+  "pricePlan.chart_preview_failed": "预览失败：{{message}}",
+  "pricePlan.chart_replay_switch_tooltip": "叠加价格计划档位线，与成交标记对照"
 }

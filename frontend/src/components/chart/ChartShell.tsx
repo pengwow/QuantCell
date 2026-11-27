@@ -63,6 +63,7 @@ import {
 import { CVD_INDICATOR, FUNDING_INDICATOR, OI_INDICATOR, oiIntervalForPeriod, periodToMs, setFundingHistory, setOiHistory } from './orderbook/extraIndicators';
 import { alignToBar, clearFillMarkers, createFillMarker, type FillPoint } from './orderbook/fillMarkers';
 import { registerDepthProfileOverlay, setDepthProfileSymbol, updateDepthSnapshot, type DepthProfileSnapshot } from './orderbook/depthOverlay';
+import { drawPricePlanOverlays, type PricePlanOverlayLevel } from './pricePlanOverlays';
 import { marketdataApi } from '@/api/marketdataApi';
 import wsService from '@/services/websocketService';
 import DrawingBar from '../DrawingBar';
@@ -212,6 +213,8 @@ export interface ChartShellProps {
    * 壳内先删后加幂等重画）。缺省不绘制回放标记
    */
   backtestFills?: FillPoint[];
+  /** 价格计划档位线（页面喂数：planToOverlayLevels 后传入；壳内先删后加幂等重画） */
+  pricePlanLevels?: PricePlanOverlayLevel[];
   /** 主区右侧插槽（/chart 页放订单簿面板 + 成交流水；回放页不传不渲染） */
   rightPanelSlot?: React.ReactNode;
   /** 最新盘口深度快照（页面 WS listener 喂入，驱动深度轮廓 overlay；null 不更新） */
@@ -345,6 +348,28 @@ const createSignalTagPointFigures: OverlayCreateFiguresCallback<unknown> = ({ ov
   ] as OverlayFigure[];
 };
 
+/**
+ * signalTag 模板注册（幂等：重名注册直接覆盖模板表）。
+ * 导出给回放页复用——registerOverlay 是 klinecharts 的全局模板注册表，
+ * 回放页不经过 ChartShell 实例，不注册则该页 createOverlay({name:'signalTag'}) 静默不画
+ * （v10 addOverlays 对未注册名直接跳过）。
+ */
+export const registerSignalTagOverlay = (): void => {
+  try {
+    registerOverlay({
+      name: 'signalTag',
+      totalStep: 2,
+      lock: true,
+      needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false,
+      needDefaultYAxisFigure: false,
+      createPointFigures: createSignalTagPointFigures,
+    });
+  } catch (e) {
+    console.warn('[Chart] 注册signalTag overlay失败:', e);
+  }
+};
+
 // 注册繁体中文语言包（模块级一次性注册）
 registerLocale('zh-HK', {
   time: '時間：',
@@ -380,6 +405,7 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
   error = null,
   orderbookModalProps,
   backtestFills,
+  pricePlanLevels,
   rightPanelSlot,
   depthData,
 }, ref) => {
@@ -1080,20 +1106,8 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
       registerOverlay(overlay);
     });
 
-    // 注册信号标注overlay（一次性注册）
-    try {
-      registerOverlay({
-        name: 'signalTag',
-        totalStep: 2,
-        lock: true,
-        needDefaultPointFigure: false,
-        needDefaultXAxisFigure: false,
-        needDefaultYAxisFigure: false,
-        createPointFigures: createSignalTagPointFigures,
-      });
-    } catch (e) {
-      console.warn('[Chart] 注册signalTag overlay失败:', e);
-    }
+    // 注册信号标注overlay（一次性注册，模板注册函数供回放页复用）
+    registerSignalTagOverlay();
 
     // 注册深度轮廓 overlay 模板（幂等；实例的挂/卸由下方 depthProfile 开关 effect 驱动）
     try {
@@ -1286,6 +1300,16 @@ const ChartShell = forwardRef<ChartShellHandle, ChartShellProps>(({
     clearFillMarkers(chart, 'backtest');
     for (const fill of backtestFills ?? []) createFillMarker(chart, fill);
   }, [backtestFills]);
+
+  // ===== 价格计划档位线：页面喂数（pricePlanLevels），壳负责画（先清后画幂等）=====
+  // 线端点取 getBars() 首尾 timestamp；不列入 deps：getBars 是父组件每次渲染新建的内联箭头
+  //（读 klineDataRef，引用抖动无语义），端点在 pricePlanLevels 变化时取一次即可
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    drawPricePlanOverlays(chart, pricePlanLevels ?? [], getBars?.() ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricePlanLevels]);
 
   // 实时：订阅 topic 才会收流（listener 收 message.data 本体：{symbol, side, price, quantity, ts}）。
   // 收放对称：离开组件/关开关时退订（当前仅本组件消费该 topic）

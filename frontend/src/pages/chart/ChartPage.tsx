@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Input, Modal, Spin, App } from 'antd';
+import { Card, Input, Modal, Select, Space, Spin, Switch, Tag, App } from 'antd';
 import type { KLineData } from 'klinecharts';
 import { dataApi } from '../../api/dataApi';
-import { backtestApi } from '../../api';
+import { backtestApi, strategyApi } from '../../api';
+import { usePricePlan } from '../../hooks/usePricePlan';
+import { planToOverlayLevels } from '../../components/chart/pricePlanOverlays';
+import { getPalette } from '@/theme';
+import { currentChartThemeMode } from '@/components/chart/chartStyles';
 import * as realtimeApi from '../../api/realtimeApi';
 import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
@@ -210,6 +214,9 @@ const ChartPage = () => {
         klineDataRef.current = data as unknown as KLineData[];
         shellRef.current?.refreshData();
         setPxInfo(computePxInfo(klineDataRef.current));
+        // 价格计划参考价跟随最新收盘（spec ②：ref_price 语义即「以当前价为中心的档位区间」）
+        const lastClose = Number(klineDataRef.current[klineDataRef.current.length - 1]?.close);
+        if (Number.isFinite(lastClose) && lastClose > 0) setPlanRefPrice(lastClose);
       }
     } catch (error) {
       // 过时请求的失败同样静默丢弃，避免已被取代的旧请求误报错误
@@ -333,6 +340,36 @@ const ChartPage = () => {
   const [backtestOptions, setBacktestOptions] = useState<{ label: string; value: string }[]>([]);
   // WS 连接标记：动态 topic 订阅在断线重连后不会自动恢复，用它作为订阅 effect 的依赖触发重订阅
   const [wsConnected, setWsConnected] = useState(wsService.getConnected());
+
+  // ===== 价格计划叠加（spec ②）：拉一次策略列表（筛 has_price_plan）→ 下拉选择 →
+  // usePricePlan 以「最新收盘价为 ref_price」实时预览 → planToOverlayLevels 喂给壳的 pricePlanLevels =====
+  const [pricePlanOn, setPricePlanOn] = useState(false);
+  const [pricePlanStrategies, setPricePlanStrategies] = useState<string[]>([]);
+  const [pricePlanStrategy, setPricePlanStrategy] = useState<string | null>(null);
+  // 参考价 = 最新收盘价（LevelPlan 的 ref_price 口径即「以当前价为基准的区间」）；K 线未加载时为 null，
+  // usePricePlan 内部 key 变 null 会静默清预览，无需额外处理
+  const [planRefPrice, setPlanRefPrice] = useState<number | null>(null);
+  const { data: pricePlanPreview, loading: pricePlanLoading, error: pricePlanError } = usePricePlan({
+    strategyName: pricePlanOn ? pricePlanStrategy : null,
+    params: {},
+    refPrice: planRefPrice,
+  });
+  // 预览成功后即时换算（失败时清空并展示 error，error 文案在 JSX 侧接 pricePlanError）
+  const pricePlanLevels = useMemo(
+    () => (pricePlanPreview ? planToOverlayLevels(pricePlanPreview) : []),
+    [pricePlanPreview],
+  );
+
+  // 策略列表：仅为筛选「实现了 price_plan 的策略」，拉取失败静默（开关开着下拉里没得选即可发现）
+  useEffect(() => {
+    strategyApi
+      .getStrategies()
+      .then((resp) =>
+        setPricePlanStrategies(resp.strategies.filter((s) => s.has_price_plan).map((s) => s.name)),
+      )
+      .catch(() => setPricePlanStrategies([]));
+  }, []);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -670,6 +707,53 @@ const ChartPage = () => {
         }
       >
         <Card className="qc-card chart-card">
+          {/* 价格计划控制条：与图表同 Card，antd 组件间距走 Space/Flex（见项目布局规范） */}
+          <Space orientation="vertical" size={4} style={{ display: 'flex', marginBottom: 8 }}>
+            <Space size="middle" wrap>
+              <Space size={6}>
+                <Switch size="small" checked={pricePlanOn} onChange={setPricePlanOn} />
+                <span style={{ fontSize: 12 }}>{t('pricePlan.chart_switch_label')}</span>
+              </Space>
+              {pricePlanOn && (
+                <Select
+                  size="small"
+                  allowClear
+                  showSearch
+                  style={{ minWidth: 180 }}
+                  placeholder={t('pricePlan.chart_strategy_placeholder')}
+                  notFoundContent={t('pricePlan.chart_no_strategies')}
+                  value={pricePlanStrategy ?? undefined}
+                  onChange={(v) => setPricePlanStrategy(v ?? null)}
+                  options={pricePlanStrategies.map((name) => ({ label: name, value: name }))}
+                  loading={pricePlanLoading}
+                />
+              )}
+              {pricePlanOn && pricePlanPreview && (
+                <Space size={4} wrap>
+                  {(['buy', 'sell', 'tp'] as const).map((actionKey) => (
+                    <Tag
+                      key={actionKey}
+                      style={{ marginInlineEnd: 0 }}
+                      color={
+                        actionKey === 'buy'
+                          ? getPalette(currentChartThemeMode()).chartBuyMarker
+                          : actionKey === 'sell'
+                            ? getPalette(currentChartThemeMode()).chartSellMarker
+                            : getPalette(currentChartThemeMode()).info
+                      }
+                    >
+                      {t(`pricePlan.action_${actionKey}`)}
+                    </Tag>
+                  ))}
+                </Space>
+              )}
+              {pricePlanOn && !!pricePlanError && (
+                <span style={{ color: getPalette(currentChartThemeMode()).chartSellMarker, fontSize: 12 }}>
+                  {t('pricePlan.chart_preview_failed', { message: pricePlanError })}
+                </span>
+              )}
+            </Space>
+          </Space>
           <ChartShell
             ref={shellRef}
             chartId="language-k-line"
@@ -714,6 +798,7 @@ const ChartPage = () => {
                 : undefined
             }
             backtestFills={backtestFills}
+            pricePlanLevels={pricePlanLevels}
           />
         </Card>
       </PageContainer>
