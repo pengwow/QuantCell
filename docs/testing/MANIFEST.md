@@ -23,3 +23,5 @@
 | `/setting` `/setting/account` `/setting/general` `/setting/env` `/setting/exchange` `/setting/exchange-account` `/setting/notifications` `/setting/model` `/setting/agentTokens` `/setting/info` `/setting/plugins` `/setting/desktop-backend` | 设置页群（11 子页；exchange-account 为账户总览设计 Demo，mock 数据） | `pages/settings.md` | ✅ | L1+L2 | token 注入；AI 提供商配置是全站 L2 的种子 |
 | `/agent` | 智能体工作台（`?tab=` 八视图） | `pages/agent.md` | ✅ | L1+L2 | token 注入；真实 LLM 任务按需 |
 | 插件注册的动态路由（`pluginRegistry`） | 插件页 | 按插件单独补 | ⏳ | 按需 | 安装对应插件 |
+| `POST /api/v1/strategies/preview`（后端 API，无独立前端页） | 价格计划预览 | `pages/strategy-editor.md`（E18-E20；另见 strategy-worker W32-W34 / chart C14 / backtest B34） | ✅ | L1 | token 注入；需实现 price_plan 协议的策略 |
+| `GET /api/v1/workers/{id}/plan`（后端 API，无独立前端页） | Worker 价格计划运行态 | `pages/strategy-worker.md`（W35-W36） | ✅ | L1 | token 注入；需已启动并被固化 price_plan 的运行中 Worker |

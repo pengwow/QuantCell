@@ -28,6 +28,9 @@
 | E15 | 点「AI 生成策略」打开弹窗 | 弹窗标题右侧出现「kernel 兼容契约」chip（info 档色 + mono 形制，沿用 `qc-chip info` 口径）；不挤压标题、窄窗下不换行错位 | L1 |
 | E16 | 载入已保存策略后点工具栏「版本历史」 | 右侧抽屉（标题「版本历史」，宽 920px）内为**左时间轴 + 右快照预览**双栏：左侧每条 = 时间 + 版本号 + `hash · 大小 · 行数`（当前条圆点高亮），点击即选中；右侧 = meta 行（版本 / 创建 / 大小 / 行数 / hash / 「当前文件」标记）+ 只读 Monaco 快照全文 + 底部「对比当前文件」开关与「载入编辑器」按钮；切换快照时 meta 与代码同步切（无第二次请求，按 id 缓存）；未载入策略时该钮 disabled；抽屉展开无 console error | L2 |
 | E17 | 在编辑器里改代码但不保存 → 打开「版本历史」→ 点「载入编辑器」→ 确认 | Popconfirm 提示「把 {label} 载入编辑器？」，`dirty` 时额外出现「编辑器里尚未保存的改动会丢失」；确认后**只写编辑缓冲区**：`code` = 快照全文、页头出现「未保存」chip、保存按钮高亮，抽屉关闭并提示「已载入 {label} 到编辑器，保存后才会生成新快照」；此时 `GET /strategy/{name}/versions` 的 `count` 不变、磁盘文件未改（无任何写请求）；点「保存」后才 `POST /strategy/upload`，`count` +1（内容与最近快照相同则按 `code_hash` 去重不涨），「未保存」chip 消失 | L2 |
+| E18 | 载入实现 price_plan 协议的策略（如网格类），右侧区块切到「价格计划」tab | 出现「参考价」InputNumber 与「参数覆盖(JSON)」TextArea；不填参考价时预览区显示可读错误 Alert（`REF_PRICE_REQUIRED` 文案类，非 `[object Object]`）；填入当前价格后约 0.3s 渲染迷你 K 线 + 档位 chips + 区间摘要 + 可折叠明细表；network 应见 `POST /api/v1/strategies/preview`（连改只发最后一次） | L1 |
+| E19 | hover 档位 chips 或明细表任意行 | 迷你图对应价位线加粗高亮（联动），移开恢复；明细表格行 hover 背景高亮 | L2 |
+| E20 | 载入 `strategy_type=rl` 的策略切「价格计划」tab | 显示「该策略类型暂不支持价格计划」语义的 Alert，不渲染预览区 | L1 |
 
 ## 历史雷区
 - **成对括号配色**（2026-11-20）：Monaco 默认开启 bracket pair colorization，`()`/`[]`/`{}` 会染金/紫/粉，与基准 demo 的单色括号不一致。修法是在主题里把 `editorBracketHighlight.foreground1..6` 统一到 `#d4d4d4`（`src/monaco/quantcellTheme.ts`）；**注意 `options.bracketPairColorization.enabled: false` 经 `@monaco-editor/react` 传不进去，别走那条路**
