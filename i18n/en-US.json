@@ -3959,7 +3959,6 @@
   "pricePlan.auto_fetch_failed": "Failed to fetch live reference price: {{message}}",
   "pricePlan.auto_need_symbol": "Select at least one trading symbol first",
   "pricePlan.auto_retry": "Retry",
-  "pricePlan.create_override_placeholder": "Params override JSON (optional)",
   "pricePlan.detail_tab_label": "Price plan",
   "pricePlan.detail_progress_title": "Runtime progress",
   "pricePlan.detail_state_fixed": "Fixed",

@@ -3959,7 +3959,6 @@
   "pricePlan.auto_fetch_failed": "获取实时参考价失败：{{message}}",
   "pricePlan.auto_need_symbol": "请先选择交易标的",
   "pricePlan.auto_retry": "重试",
-  "pricePlan.create_override_placeholder": "参数覆盖 JSON（可空）",
   "pricePlan.detail_tab_label": "价格计划",
   "pricePlan.detail_progress_title": "运行态进度",
   "pricePlan.detail_state_fixed": "已固化",

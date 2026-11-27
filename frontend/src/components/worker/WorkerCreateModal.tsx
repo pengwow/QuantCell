@@ -21,8 +21,6 @@ import {
   App,
   Card,
   Spin,
-  Alert,
-  Typography,
 } from 'antd';
 import {
   PlusOutlined,
@@ -35,9 +33,7 @@ import { useWorkerStore } from '../../store/workerStore';
 import { buildWorkerName } from './workerName';
 import { strategyApi, configApi } from '../../api';
 import { upsertRiskControl } from '../../api/workerApi';
-import { usePricePlan } from '../../hooks/usePricePlan';
-import PricePlanSection from '../pricePlan/PricePlanSection';
-import PricePlanMiniChart from '../pricePlan/PricePlanMiniChart';
+import PricePlanAutoPreview from '../pricePlan/PricePlanAutoPreview';
 import RiskControlForm, {
   EMPTY_RISK_VALUES,
   RISK_FORM_FIELDS,
@@ -159,6 +155,16 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   // Worker名称自动生成：用户手输过就不再覆盖（onChange 只在真实键入时触发，
   // setFieldValue 不触发，正好用作"是否手输"的判定标志）
   const nameTouchedByUserRef = useRef(false);
+
+  // 价格计划自动预览所需表单直读：symbol/exchange/market_type 任一变化都会触发重新取价。
+  // Form.useWatch 是 hook，必须无条件在组件顶层调用（不能放在条件里）
+  const watchedSymbols = Form.useWatch('symbol', form) as string[] | undefined;
+  const watchedExchange = Form.useWatch('exchange', form) as string | undefined;
+  const watchedMarketType = Form.useWatch('market_type', form) as string | undefined;
+  const pricePlanStrategy =
+    strategies.find((s) => s.id === selectedStrategyId && s.has_price_plan) ?? null;
+  // 预览用标的统一大写去重（与提交口径一致，SymbolSelect 的自选组已展开）
+  const previewSymbols = Array.from(new Set((watchedSymbols ?? []).map((s) => s.toUpperCase())));
 
   // 获取所有数据
   useEffect(() => {
@@ -695,10 +701,15 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           </Col>
         </Row>
 
-        {/* 价格计划自检区：策略含 price_plan 时出现，创建前可见买卖/止盈档位结构 */}
-        <PricePlanSelfCheck
-          strategy={strategies.find((s) => s.id === selectedStrategyId && s.has_price_plan) ?? null}
-        />
+        {/* 价格计划自动预览：实时取价 + chips 切换（策略含 price_plan 才渲染） */}
+        {pricePlanStrategy && (
+          <PricePlanAutoPreview
+            strategyName={pricePlanStrategy.name}
+            symbols={previewSymbols}
+            exchange={watchedExchange}
+            marketType={watchedMarketType}
+          />
+        )}
 
         {/* 人工风控（可选：默认关闭，全空字段不提交） */}
         <RiskControlForm form={form} />
@@ -706,52 +717,5 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     </Modal>
   );
 };
-
-/**
- * 创建弹窗自检区：所选策略声明 price_plan 时显示，创建前即可见订单价格范围。
- * 参数预览语义：不解析 strategyParams 定义（结构宽松），只支持 JSON 覆盖——
- * 默认参数由后端 preview resolved merge 补齐（策略文件是唯一权威）。
- */
-function PricePlanSelfCheck({ strategy }: { strategy: StrategyInfo | null }) {
-  const { t } = useTranslation();
-  const [refPrice, setRefPrice] = useState<number | null>(null);
-  const [overrideText, setOverrideText] = useState('');
-
-  let overrides: Record<string, unknown> = {};
-  try {
-    overrides = overrideText.trim() ? (JSON.parse(overrideText) as Record<string, unknown>) : {};
-  } catch {
-    // 非法 JSON 静默忽略：预览退回策略默认参数，不阻断创建流程
-    overrides = {};
-  }
-
-  const { data, error, loading } = usePricePlan({
-    strategyName: strategy?.name ?? '',
-    params: overrides,
-    refPrice,
-  });
-
-  if (!strategy?.has_price_plan) return null;
-
-  return (
-    <Card size="small" title={t('pricePlan.create_self_check_title')} style={{ marginTop: 16 }}>
-      <Space orientation="vertical" size="small" style={{ display: 'flex' }}>
-        <Space size="small" wrap>
-          <Typography.Text>{t('pricePlan.worker_ref_price')}</Typography.Text>
-          <InputNumber min={0} value={refPrice} onChange={(v) => setRefPrice(v ?? null)} />
-          <Input
-            style={{ width: 220 }}
-            placeholder={t('pricePlan.create_override_placeholder')}
-            value={overrideText}
-            onChange={(e) => setOverrideText(e.target.value)}
-          />
-        </Space>
-        {error && <Alert type="warning" message={error} />}
-        <PricePlanMiniChart plan={data ?? null} refPrice={refPrice} loading={loading} />
-        <PricePlanSection plan={data ?? null} compact maxHeight={120} />
-      </Space>
-    </Card>
-  );
-}
 
 export default WorkerCreateModal;
