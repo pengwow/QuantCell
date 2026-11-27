@@ -409,6 +409,13 @@ def test_start_rl_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_path
 
     monkeypatch.setattr("worker.strategy_manager.get_db_session", lambda: _FakeSession())
     monkeypatch.setattr("worker.crud.update_worker_status", lambda *args, **kwargs: None)
+    # B2 成交落库组件 LiveTradeSync 必须进程内替换：它会拿假 key 真请求 testnet
+    # REST，既违反本文件"不联网"承诺，网络抖动还会拖长 tick 拍内耗时，让 stop
+    # 的 join(5s) 超时误触发 P0-4 fail-closed 跳过收口（KeyError 'shutdown' 根因）
+    monkeypatch.setattr(
+        "worker.strategy_manager.StrategyManager._build_live_trade_sync",
+        staticmethod(lambda *args, **kwargs: None),
+    )
 
     # 配置边界：market_type / 交易所 / 凭证缺省必须入口即拒，不静默装配。
     # 凭证解析支持「credentials_account 缺省 → 回退系统配置测试网 Key」，
