@@ -12,7 +12,9 @@ from typing import Any
 
 import pandas as pd
 
+from utils.data_utils import _find_parquet_file, _infer_ts_scale
 from utils.logger import LogType, get_logger
+from utils.parquet_utils import load_from_parquet
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -88,6 +90,7 @@ class DataIntegrityChecker:
         end_time: datetime,
         market_type: str = "crypto",
         crypto_type: str = "spot",
+        source: str = "db",
     ) -> DataIntegrityResult:
         """
         检查数据完整性
@@ -99,6 +102,7 @@ class DataIntegrityChecker:
             end_time: 结束时间
             market_type: 市场类型
             crypto_type: 加密货币类型
+            source: 现有数据口径，"db" 查数据库（默认），"parquet" 读回测实际使用的 source 单文件
 
         Returns:
             DataIntegrityResult: 检查结果
@@ -120,7 +124,9 @@ class DataIntegrityChecker:
                 end_time = datetime.fromisoformat(end_time)
 
             # 1. 获取现有数据
-            existing_data = self._get_existing_data(symbol, interval, start_time, end_time, market_type, crypto_type)
+            existing_data = self._get_existing_data(
+                symbol, interval, start_time, end_time, market_type, crypto_type, source
+            )
 
             # 2. 计算期望的数据点数量
             result.total_expected = self._calculate_expected_count(start_time, end_time, interval)
@@ -175,8 +181,12 @@ class DataIntegrityChecker:
         end_time: datetime,
         market_type: str,
         crypto_type: str,
+        source: str = "db",
     ) -> pd.DataFrame:
         """获取现有数据"""
+        # parquet 口径：与回测加载同一物理文件（source 单文件）
+        if source == "parquet":
+            return self._get_existing_parquet_data(symbol, interval, start_time, end_time, crypto_type)
         try:
             # 确保数据库会话已初始化
             if self.db is None:
@@ -224,6 +234,45 @@ class DataIntegrityChecker:
             import traceback
 
             logger.debug(f"错误详情: {traceback.format_exc()}")
+            return pd.DataFrame()
+
+    def _get_existing_parquet_data(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: datetime,
+        end_time: datetime,
+        crypto_type: str,
+    ) -> pd.DataFrame:
+        """从回测实际读取的 source 单文件 Parquet 读取现有数据
+
+        检查口径必须与回测加载口径是同一物理文件，否则下载写到别处时
+        会出现"下载完成仍报不完整"。
+        """
+        try:
+            # crypto_type(spot/um/cm) → source 目录口径（spot/future，单数）
+            market_dir = "spot" if crypto_type == "spot" else "future"
+            file_path = _find_parquet_file(symbol, interval, market_dir)
+            df = load_from_parquet(file_path, columns=["timestamp", "open", "high", "low", "close", "volume"])
+            if df.empty or "timestamp" not in df.columns:
+                return pd.DataFrame()
+
+            # 统一换算为纳秒整型，供 _calculate_missing_ranges 做差集
+            # ponytail: 假设单文件内时间单位一致（由写入方 _merge_to_source_parquet 保证）；
+            # 若历史上出现过混单位文件，需专门修数，这里不做逐行判断
+            # ponytail: 1_000_000_000 // scale 在 ns/us/ms/s 四档下均为整除
+            scale = _infer_ts_scale(float(df["timestamp"].max()))
+            df = df.copy()
+            df["timestamp"] = df["timestamp"].astype("int64") * (1_000_000_000 // scale)
+
+            # 闭区间过滤，与 DB 查询口径（>= start, <= end）一致
+            start_ns = int(start_time.timestamp() * 1_000_000_000)
+            end_ns = int(end_time.timestamp() * 1_000_000_000)
+            df = df[(df["timestamp"] >= start_ns) & (df["timestamp"] <= end_ns)]
+            return df.reset_index(drop=True)
+
+        except Exception as e:
+            logger.error(f"读取 Parquet 现有数据失败: {e}")
             return pd.DataFrame()
 
     def _calculate_expected_count(self, start_time: datetime, end_time: datetime, interval: str) -> int:
