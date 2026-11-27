@@ -3951,5 +3951,14 @@
   "pricePlan.summary_range": "Price range [{{min}}, {{max}}]",
   "pricePlan.summary_entry": " · Ref {{entry}}",
   "pricePlan.collapse_detail": "Collapse details",
-  "pricePlan.expand_detail": "Expand details ({{count}} levels)"
+  "pricePlan.expand_detail": "Expand details ({{count}} levels)",
+  "pricePlan.editor_save_first": "Save the strategy first — the plan preview is based on saved strategy code",
+  "pricePlan.editor_preview_settings": "Preview settings",
+  "pricePlan.editor_ref_price": "Ref price: ",
+  "pricePlan.editor_ref_price_hint": "Leave empty to skip fetching; candles are a sample walk showing the order price range",
+  "pricePlan.editor_override_placeholder": "Param overrides JSON (optional)",
+  "pricePlan.editor_override_invalid": "Invalid JSON overrides, ignored",
+  "pricePlan.editor_plan_preview": "Price plan preview",
+  "pricePlan.editor_tab_label": "Price plan",
+  "pricePlan.editor_rl_unsupported": "RL strategies do not support price plan preview yet"
 }
