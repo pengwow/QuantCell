@@ -219,6 +219,10 @@ class StrategyConfig(BaseSchema):
         description="策略参数",
         json_schema_extra={"example": {"n1": 10, "n2": 20}},
     )
+    strategy_params_by_symbol: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        description="按标的参数覆盖（{symbol: {param: value}}，键为 expand_symbol 形态）；与 params 合并后逐标的生效（spec 2026-11-28）",
+    )
 
 
 class BacktestRunRequest(BaseSchema):

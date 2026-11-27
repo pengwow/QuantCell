@@ -176,6 +176,7 @@ class EventDrivenBacktestService:
         symbols: list[str],
         timeframes: list[str],
         engine_config: dict | None = None,
+        strategy_params_by_symbol: dict[str, dict[str, Any]] | None = None,
         show_progress: bool = False,
         data_type: str = "kline",
         market: str = "spot",
@@ -194,6 +195,9 @@ class EventDrivenBacktestService:
             symbols: 品种列表
             timeframes: 时间周期列表
             engine_config: 引擎配置（可选），支持 trading_mode: "spot"/"futures"
+            strategy_params_by_symbol: 按标的参数覆盖（{symbol: {param: value}}），
+                逐标的与 strategy_params 合并后加载/运行（spec 2026-11-28 §5）；
+                None/空 = 行为与旧版一致（多品种共享同一份参数）
             show_progress: 是否显示进度
             data_type: 数据类型 (kline/aggTrades/fundingRate/bookDepth 等)
             market: 市场类型 (spot/um/cm)
@@ -376,25 +380,38 @@ class EventDrivenBacktestService:
 
         # cascade 决策录制按任务命名：loader 对显式 replay_file 是尊重的，
         # 这里注入 {task_id}.jsonl，让「决策分析」能通过 task_id 关联回测；
-        # 重新绑定避免污染调用方的 task dict（task 会被持久化）
+        # 重新绑定避免污染调用方的 task dict（task 会被持久化）。
+        # 注入必须放在 resolve 之前：resolve 只合并「公共 + 覆盖」，不能把
+        # task_id 派生键（replay_file）再被覆盖表意外改写。
         if task_id is not None:
             strategy_params = {**strategy_params, "replay_file": f"{task_id}.jsonl"}
+
+        # 按标的参数覆盖（spec 2026-11-28 §5）：resolver 是合并唯一出口。
+        # 函数内 import：与上方 StrategyLoaderService 同款循环依赖约定
+        from strategy.param_resolver import resolve_strategy_params
+
+        by_symbol = strategy_params_by_symbol or {}
 
         instrument_ids = [{"symbol": s, "venue": "BINANCE"} for s in symbols for _ in timeframes]
         bar_types = list(timeframes) * len(symbols)
 
-        strategy = StrategyLoaderService.load_strategy(
-            strategy_name=strategy_name,
-            strategy_params=strategy_params,
-            instrument_ids=instrument_ids,
-            bar_types=bar_types,
-            # 回测不允许真实请求 LLM：mode='llm' 的策略在此被强制包成 ReplayProvider
-            run_mode="backtest",
-        )
-
-        if strategy is None:
-            msg = f"无法加载策略: {strategy_name}"
-            raise ValueError(msg)
+        # 单品种：一次加载（有该标的覆盖则合并进参数，无覆盖 = 旧行为不变）。
+        # 多品种的加载延后到下方分支（共享资金池逐标的加载；独立资金池有覆盖
+        # 才逐标的加载、无覆盖复用单一实例——回归守护）。此处不为多品种额外
+        # 预加载，否则「多品种 + 覆盖」会多出一个无覆盖语义的冗余实例。
+        strategy = None
+        if len(symbols) == 1:
+            strategy = StrategyLoaderService.load_strategy(
+                strategy_name=strategy_name,
+                strategy_params=resolve_strategy_params(strategy_params, by_symbol, symbols[0]),
+                instrument_ids=instrument_ids,
+                bar_types=bar_types,
+                # 回测不允许真实请求 LLM：mode='llm' 的策略在此被强制包成 ReplayProvider
+                run_mode="backtest",
+            )
+            if strategy is None:
+                msg = f"无法加载策略: {strategy_name}"
+                raise ValueError(msg)
 
         # 多品种结果占位（单品种路径不赋值，保持 None）
         per_symbol_results: dict[str, dict[str, Any]] | None = None
@@ -480,10 +497,10 @@ class EventDrivenBacktestService:
                 parts = key.rsplit("_", 1)
                 sym = parts[0] if len(parts) > 1 else key
                 # 每个品种一个独立策略实例：共享账户下策略内部的滚动状态必须按品种隔离，
-                # 否则两品种会互相污染彼此的指标窗口
+                # 否则两品种会互相污染彼此的指标窗口；参数按标的合并（D1 resolver 唯一出口）
                 sym_strategy = StrategyLoaderService.load_strategy(
                     strategy_name=strategy_name,
-                    strategy_params=strategy_params,
+                    strategy_params=resolve_strategy_params(strategy_params, by_symbol, sym),
                     instrument_ids=[{"symbol": sym, "venue": "BINANCE"}],
                     bar_types=[timeframes[0]] if timeframes else ["15m"],
                     # 与单品种路径一致：LLM 策略在回测中只读 replay
@@ -545,6 +562,34 @@ class EventDrivenBacktestService:
             aggregated_metrics: dict[str, Any] = {}
             per_symbol_results = {}
             loaded_entries = list(loaded_data.items())
+            # 有按标的覆盖时逐标的加载独立实例（参数各自合并）；
+            # 无覆盖沿用单一 strategy 实例（与旧行为逐字段一致，回归守护）。
+            # 多品种 + 无覆盖时 strategy 尚未加载（单品种路径才在加载块实例化），
+            # 此处补一次加载供全品种复用。
+            per_symbol_strategies: dict[str, Any] | None = None
+            if by_symbol:
+                per_symbol_strategies = {}
+                for key, _entry in loaded_entries:
+                    parts = key.rsplit("_", 1)
+                    sym = parts[0] if len(parts) > 1 else key
+                    per_symbol_strategies[sym] = StrategyLoaderService.load_strategy(
+                        strategy_name=strategy_name,
+                        strategy_params=resolve_strategy_params(strategy_params, by_symbol, sym),
+                        instrument_ids=[{"symbol": sym, "venue": "BINANCE"}],
+                        bar_types=[timeframes[0]] if timeframes else ["15m"],
+                        run_mode="backtest",
+                    )
+            elif strategy is None:
+                strategy = StrategyLoaderService.load_strategy(
+                    strategy_name=strategy_name,
+                    strategy_params=strategy_params,
+                    instrument_ids=instrument_ids,
+                    bar_types=bar_types,
+                    run_mode="backtest",
+                )
+                if strategy is None:
+                    msg = f"无法加载策略: {strategy_name}"
+                    raise ValueError(msg)
             for idx, (key, entry) in enumerate(loaded_entries):
                 _check_cancelled()
                 df = entry["data"]
@@ -552,10 +597,11 @@ class EventDrivenBacktestService:
                 sym = parts[0] if len(parts) > 1 else key
                 if on_symbol_progress:
                     on_symbol_progress(idx, len(loaded_entries), sym)
+                sym_strategy = (per_symbol_strategies or {}).get(sym) or strategy
                 if use_rust_runner:
                     # 每品种独立跑一个 Rust 内核（与 BacktestLoop 每品种独立资金池口径一致）
                     loop_result = self._run_rust_single(
-                        strategy=strategy,
+                        strategy=sym_strategy,
                         df=df,
                         symbol=sym,
                         init_cash=init_cash,
@@ -573,7 +619,7 @@ class EventDrivenBacktestService:
                 else:
                     # BacktestLoop Python 回退路径：无 bar 级进度回调
                     loop_result = loop.run(
-                        strategy=strategy,
+                        strategy=sym_strategy,
                         data=df,
                         symbol=sym,
                         force_liquidate=force_liquidate,
@@ -648,7 +694,7 @@ class EventDrivenBacktestService:
             formatted_results["decisions"] = self._collect_cascade_decisions(
                 strategy=strategy,
                 strategies_by_symbol=locals().get("strategies_by_symbol"),
-                per_symbol_strategies=locals().get("_per_symbol_strategies"),
+                per_symbol_strategies=locals().get("per_symbol_strategies"),
             )
         except Exception as e:
             logger.warning(f"[cascade] 决策记录采集失败: {e}")

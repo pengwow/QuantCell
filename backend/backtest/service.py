@@ -294,6 +294,7 @@ class BacktestService:
             raw_result = service.run_backtest(
                 strategy_name=task["strategy_name"],
                 strategy_params=task.get("strategy_params", {}),
+                strategy_params_by_symbol=(task.get("config") or {}).get("strategy_params_by_symbol"),
                 symbols=task["symbols"],
                 timeframes=task["timeframes"],
                 engine_config={**engine_config, "log_level": "WARNING"},

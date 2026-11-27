@@ -130,3 +130,11 @@ def test_persist_empty_ref_prices_skips_db_write(manager, svc, saved):
     """ref_prices 为空：跳过写库（避免把旧固化清成 {"plans": {}}）"""
     manager._persist_worker_price_plan(1, "grid", {}, {})
     assert saved == []
+
+
+def test_persist_resolves_per_symbol_params(manager, svc, saved):
+    """D1：固化按标的合并参数——BTC 有覆盖、ETH 无覆盖用公共参数（resolver 唯一出口）"""
+    by_symbol = {"BTCUSDT": {"lower": 100.0}, "ETHUSDT": {"lower": None}}  # None 视同未覆盖
+    manager._persist_worker_price_plan(1, "grid", {"levels": 20}, {"BTCUSDT": 50000.0, "ETHUSDT": 2000.0}, by_symbol)
+    assert svc.previews[0][1] == {"levels": 20, "lower": 100.0}  # BTC：公共 + 覆盖
+    assert svc.previews[1][1] == {"levels": 20}  # ETH：仅公共

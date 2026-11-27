@@ -292,15 +292,22 @@ class StrategyManager:
                 )
 
     def _persist_worker_price_plan(
-        self, worker_id: int, strategy_name: str, params: dict, ref_prices: dict[str, float | None]
+        self,
+        worker_id: int,
+        strategy_name: str,
+        params: dict,
+        ref_prices: dict[str, float | None],
+        by_symbol: dict[str, dict[str, Any]] | None = None,
     ) -> None:
-        """按标的多份固化（spec §3 D4）。
+        """按标的多份固化（spec §3 D4 + 2026-11-28 D1）。
 
         ref_prices 缺失（None/<=0）→ 该标的落 pending 占位，不阻塞其他标的（Partial 固化）。
-        预览是纯函数，逐标的调用互不影响。
+        每标的的参数 = resolve_strategy_params(params, by_symbol, symbol)，
+        与执行实例同参数（预览=执行同源）。预览是纯函数，逐标的调用互不影响。
         """
         # 函数内 import：strategy.service 在模块加载期与 workers 包有循环依赖，
         # 且 get_strategy_service 持有模块级单例，只在启动链路真正用到
+        from strategy.param_resolver import resolve_strategy_params
         from strategy.routes import get_strategy_service
         from strategy.service import PlanPreviewError
 
@@ -315,7 +322,9 @@ class StrategyManager:
         for symbol, ref in ref_prices.items():
             if ref and float(ref) > 0:
                 try:
-                    plan = svc.preview_price_plan(strategy_name, params, float(ref))
+                    plan = svc.preview_price_plan(
+                        strategy_name, resolve_strategy_params(params, by_symbol, symbol), float(ref)
+                    )
                     plans[symbol] = {
                         "symbol": symbol,
                         "state": "fixed",
@@ -475,6 +484,12 @@ class StrategyManager:
             # RL 策略不走 StrategyLoaderService（那里只加载规则 / LLM 策略源码）：
             # 模型与观测规格直接注册到统一内核 / LiveDriver 的 RL host
             if (getattr(strategy, "strategy_type", None) or "rule") == "rl":
+                if len(symbols) > 1:
+                    # 路线图第 1 项：RL 按标的执行；本轮维持只挂首标的（spec D4）
+                    logger.warning(
+                        f"[StrategyManager] worker {worker_id} RL 策略多标的暂只挂首个品种: "
+                        f"symbols={symbols}, 首标的={symbols[0]}"
+                    )
                 rl_mode = trading_config.get("trading_mode", trading_mode)
                 if rl_mode == "live":
                     # 实盘闸门（设计文档 9.4）：testnet 对账通过前不放行主网
@@ -514,18 +529,24 @@ class StrategyManager:
                     worker_replay_path(worker_id).relative_to(default_replay_dir()).as_posix(),
                 )
 
-            # 通过策略加载器加载策略（唯一路径：load_strategy → BaseStrategy）
-            # paper/live 的 LLM 策略在这里被包成 RecordingProvider（回测则由
-            # engine_service 传 run_mode="backtest" 走 replay）；testnet 实质是
-            # 真实连接的实盘（合约测试网），run_mode 标 live
-            strategy_instance = StrategyLoaderService.load_strategy(
-                # Strategy 模型的策略名字段是 name（无 strategy_name 属性）
-                strategy_name=strategy.name,
-                strategy_params=params,
-                instrument_ids=symbols,
-                bar_types=[timeframe],
-                run_mode="live" if rule_mode == "testnet" else "paper",
-            )
+            # D2 多标的逐标的实例（spec 2026-11-28）：参数 = 公共 + 标的覆盖（resolver 唯一出口），
+            # 每个标的一个独立策略实例（指标窗口/持仓状态隔离），共享同一账户与风控。
+            # resolve/loader 均为函数内 import：strategy 包与 workers 包循环依赖（既有注释同款）
+            from strategy.param_resolver import resolve_strategy_params
+
+            by_symbol = (worker.get_config_dict() or {}).get("strategy_params_by_symbol") or {}
+            strategy_instances: dict[str, Any] = {}
+            for sym in symbols:
+                sym_params = resolve_strategy_params(params, by_symbol, sym)
+                strategy_instances[sym] = StrategyLoaderService.load_strategy(
+                    # Strategy 模型的策略名字段是 name（无 strategy_name 属性）
+                    strategy_name=strategy.name,
+                    strategy_params=sym_params,
+                    instrument_ids=[sym],
+                    bar_types=[timeframe],
+                    run_mode="live" if rule_mode == "testnet" else "paper",
+                )
+            strategy_instance = strategy_instances[symbols[0]]
         except Exception as e:
             logger.error(f"[StrategyManager] 策略加载失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}")
             # 加载失败直接抛出，由 start_strategy 的异常处理统一上报 worker error 状态
@@ -548,7 +569,7 @@ class StrategyManager:
         else:
             ref_prices = {s: None for s in symbols}
         try:
-            self._persist_worker_price_plan(worker_id, strategy.name, params, ref_prices)
+            self._persist_worker_price_plan(worker_id, strategy.name, params, ref_prices, by_symbol)
         except Exception as exc:
             logger.warning(f"price plan persist failed worker_id={worker_id} err={exc}")
 
@@ -557,7 +578,7 @@ class StrategyManager:
             self.start_crypto_live(
                 worker_id,
                 params,
-                strategy_instance,
+                strategy_instances,
                 timeframe,
                 symbols,
                 exchange,
@@ -570,7 +591,7 @@ class StrategyManager:
         # 规则/LLM paper 演练统一挂 PaperDriver（testnet 公共行情 + 内置撮合，
         # 与回测 Kernel 同一份 Rust 引擎口径）
         driver, risk_enabled = self._assemble_rule_paper_driver(
-            worker_id, strategy_instance, params, timeframe, symbols
+            worker_id, strategy_instances, params, timeframe, symbols
         )
 
         symbols_norm = [expand_symbol(s) for s in symbols]
@@ -599,12 +620,15 @@ class StrategyManager:
     def _assemble_rule_paper_driver(
         self,
         worker_id: int,
-        strategy_instance: Any,
+        strategy_instances: dict[str, Any],
         params: dict[str, Any],
         timeframe: str,
         symbols: list[str],
     ) -> tuple[Any, bool]:
         """装配规则/LLM 策略的 PaperDriver（不启动泵线程，可独立测试）。
+
+        strategy_instances: {symbol: 已加载策略实例}（逐标的参数已由调用方 resolve 完成）。
+        每个标的各挂一个 RustStrategyAdapter；资金/风控仍取公共 params（D2 共享账户口径）。
 
         fee_rate 用引擎默认（None → 0.001），与回测 Kernel 同口径；RL 路径
         才传模型 meta 记录的训练费率（缺字段回落 RL_TRANSACTION_COST）。策略必须经 RustStrategyAdapter
@@ -626,12 +650,12 @@ class StrategyManager:
         initial_cash = float(params.get("initial_capital", 100_000.0))
         symbols_norm = [expand_symbol(s) for s in symbols]
         driver = axon_worker.PaperDriver(symbols_norm, initial_cash=initial_cash, interval=timeframe)
-        driver.add_strategy(
-            # ponytail: 多品种沿用 RL 语义只挂首个品种；升级路径是每品种独立内核
-            # 共享同一份决策，与回测一致
-            RustStrategyAdapter(strategy_instance, initial_cash=initial_cash, symbol=symbols[0]),
-            symbol=symbols_norm[0],
-        )
+        for sym in symbols:
+            # spec 2026-11-28 D2：逐标的独立实例（指标窗口/持仓状态隔离），共享同一账户
+            driver.add_strategy(
+                RustStrategyAdapter(strategy_instances[sym], initial_cash=initial_cash, symbol=sym),
+                symbol=expand_symbol(sym),
+            )
         # B3：pre-trade 风控装配（opt-in，未配置行为不变）
         risk_enabled = apply_risk_config(driver, params, worker_id, initial_cash)
         return driver, risk_enabled
@@ -924,7 +948,7 @@ class StrategyManager:
         self,
         worker_id: int,
         params: dict[str, Any],
-        strategy_instance: Any,
+        strategy_instances: dict[str, Any],
         timeframe: str,
         symbols: list[str],
         exchange: str,
@@ -945,9 +969,9 @@ class StrategyManager:
             worker_id: Worker ID（用于运行态缓存与 journal 定位）
             params: 策略参数；可选 `credentials_account`（缺省回退系统配置的测试网 Key）
                 与 `initial_capital`
-            strategy_instance: 已加载的 BaseStrategy，经 RustStrategyAdapter 包装挂载
+            strategy_instances: {symbol: 已加载策略实例}，逐标的经 RustStrategyAdapter 包装挂载
             timeframe: K 线周期（驱动 bar 闭合节奏）
-            symbols: 交易品种列表，只挂第一个
+            symbols: 交易品种列表，逐标的挂载（D2 共享账户多实例）
             exchange: 交易所标识（v1 仅 binance）
             market_type: 市场类型（v1 仅 swap/futures）
 
@@ -994,12 +1018,12 @@ class StrategyManager:
             # 抄进影子账本带仓起跑；前端本期无此表单，需要 reject 时手改 worker params
             existing_positions=params.get("existing_positions", "adopt"),
         )
-        driver.add_strategy(
-            # ponytail: 多品种沿用 RL/paper 语义只挂首个品种；升级路径是每品种
-            # 独立内核共享同一份决策，与回测一致
-            RustStrategyAdapter(strategy_instance, initial_cash=initial_cash, symbol=symbols[0]),
-            symbol=expand_symbol(symbols[0]),
-        )
+        for sym in symbols:
+            # spec 2026-11-28 D2：逐标的独立实例（与 paper 同口径），共享账户/风控
+            driver.add_strategy(
+                RustStrategyAdapter(strategy_instances[sym], initial_cash=initial_cash, symbol=sym),
+                symbol=expand_symbol(sym),
+            )
         # B3：pre-trade 风控装配（opt-in，未配置行为不变）
         risk_enabled = apply_risk_config(driver, params, worker_id, initial_cash)
 

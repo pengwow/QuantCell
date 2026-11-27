@@ -46,10 +46,10 @@ def test_rule_paper_driver_assembly_and_fill(monkeypatch):
 
     # 周期白名单：装配期直接拒绝
     with pytest.raises(ValueError, match="不支持时间周期"):
-        mgr._assemble_rule_paper_driver(1, _BuyOnceStrategy(), {}, "2h", ["BTCUSDT"])
+        mgr._assemble_rule_paper_driver(1, {"BTCUSDT": _BuyOnceStrategy()}, {}, "2h", ["BTCUSDT"])
 
     driver, risk_enabled = mgr._assemble_rule_paper_driver(
-        1, _BuyOnceStrategy(), {"initial_capital": INITIAL_CASH}, "1h", ["BTCUSDT"]
+        1, {"BTCUSDT": _BuyOnceStrategy()}, {"initial_capital": INITIAL_CASH}, "1h", ["BTCUSDT"]
     )
     # 未配置 params.risk → 不装配风控（opt-in），泵轮不启用当日盈亏回灌
     assert risk_enabled is False

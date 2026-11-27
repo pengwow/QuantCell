@@ -107,11 +107,11 @@ def test_start_crypto_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_
     mgr = StrategyManager(max_workers=1)
     good = {"credentials_account": "acct-1"}
     with pytest.raises(ValueError, match="仅支持永续合约"):
-        mgr.start_crypto_live(7, dict(good), _fake_strategy(), "1h", ["BTCUSDT"], "binance", "spot")
+        mgr.start_crypto_live(7, dict(good), {"BTCUSDT": _fake_strategy()}, "1h", ["BTCUSDT"], "binance", "spot")
     with pytest.raises(ValueError, match="暂只支持 binance"):
-        mgr.start_crypto_live(7, dict(good), _fake_strategy(), "1h", ["BTCUSDT"], "okx", "swap")
+        mgr.start_crypto_live(7, dict(good), {"BTCUSDT": _fake_strategy()}, "1h", ["BTCUSDT"], "okx", "swap")
     with pytest.raises(ValueError, match="credentials_account"):
-        mgr.start_crypto_live(7, {}, _fake_strategy(), "1h", ["BTCUSDT"], "binance", "swap")
+        mgr.start_crypto_live(7, {}, {"BTCUSDT": _fake_strategy()}, "1h", ["BTCUSDT"], "binance", "swap")
 
     runtime = StrategyRuntime(worker_id=7, strategy_id=0, name="live-test", status="starting")
     strategy_registry.register(runtime)
@@ -122,7 +122,7 @@ def test_start_crypto_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_
         )
 
         strategy_instance = _fake_strategy()
-        mgr.start_crypto_live(7, dict(good), strategy_instance, "1h", ["BTCUSDT"], "binance", "swap")
+        mgr.start_crypto_live(7, dict(good), {"BTCUSDT": strategy_instance}, "1h", ["BTCUSDT"], "binance", "swap")
 
         assert first_tick_done.wait(timeout=10), "驱动线程应在超时前完成首次 tick"
         cfg = calls["config"]
@@ -191,7 +191,7 @@ def test_start_crypto_live_connect_failure_degrades_to_error(monkeypatch, tmp_pa
     strategy_registry.register(runtime)
     try:
         mgr.start_crypto_live(
-            8, {"credentials_account": "acct-1"}, _fake_strategy(), "1h", ["BTCUSDT"], "binance", "swap"
+            8, {"credentials_account": "acct-1"}, {"BTCUSDT": _fake_strategy()}, "1h", ["BTCUSDT"], "binance", "swap"
         )
         deadline = time.time() + 10
         while time.time() < deadline and runtime.status != "error":
