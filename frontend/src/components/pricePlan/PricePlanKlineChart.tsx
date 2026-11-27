@@ -7,6 +7,8 @@
  * - draw 返回 true 表示自定义已覆盖、跳过默认 figure 绘制（我们没有任何 figure）。
  *
  * 数据注入：v10 没有 applyNewData，用 setDataLoader({ getBars }) 喂数，setDataLoader 内部即触发 resetData。
+ * ⚠️ 还必须显式 setSymbol：Store 初始 _symbol=null，_processDataLoad 要求 symbol/period/loader
+ * 三者都有效才发 getBars，漏 setSymbol 画布只剩网格线（2026-11-27 实测踩坑）。
  *
  * 档位线用单一 indicator 一次性画全所有档（spec §4：25 档不逐档挂 overlay）。
  * plan 的读取走模块级 Map<chartId, state>：draw 回调不携带业务数据，只能按实例 id 取最新快照，
@@ -219,10 +221,15 @@ export default function PricePlanKlineChart({
   }, [ready, drawState, syncIndicator]);
 
   // 3. 数据落图（setDataLoader 内部会 resetData 并重算 indicator）
+  // 必须先 setSymbol：v10 的 Store 初始 _symbol=null，_processDataLoad 的守卫是
+  // "symbol/period/dataLoader 三者都有效才发 getBars"，漏 setSymbol 时 getBars
+  // 永不被调用、画布只剩网格线（档位线也因无数据无价格轴而画不出来）。
+  // 三个 setter 各触发一次 resetData，最后一次（setDataLoader）拿到完整三要素才真正加载。
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !symbol) return;
     const chart = chartRef.current;
     if (!chart) return;
+    chart.setSymbol({ ticker: symbol });
     chart.setPeriod(periodOf(interval));
     chart.setDataLoader({
       getBars: ({ callback }) =>
@@ -238,7 +245,7 @@ export default function PricePlanKlineChart({
         ),
     });
     syncIndicator();
-  }, [ready, bars, interval, syncIndicator]);
+  }, [ready, symbol, bars, interval, syncIndicator]);
 
   // 4. 拉取真实K线（260ms 防抖 + seq 竞态保护）
   const doFetch = useCallback(async (sym: string, ex: string, mt: string, itv: KlineInterval) => {
