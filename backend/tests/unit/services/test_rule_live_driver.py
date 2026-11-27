@@ -28,7 +28,12 @@ def _fake_strategy() -> SimpleNamespace:
 
 
 def _patch_db(monkeypatch) -> None:
-    """_mark_rl_live_error / _finalize_start / stop_strategy 的 DB 落库替换为 no-op。"""
+    """_mark_rl_live_error / _finalize_start / stop_strategy 的 DB 落库替换为 no-op。
+
+    B2 成交落库组件 LiveTradeSync 同样要进程内替换：它会拿假 key 真请求 testnet
+    REST（-2014 Invalid API-key），既违反本文件"不联网"承诺，网络抖动还会拖长
+    tick 拍内耗时，让 stop 的 join(5s) 超时误触发 fail-closed 跳过收口。
+    """
 
     class _FakeSession:
         def __enter__(self):
@@ -42,6 +47,12 @@ def _patch_db(monkeypatch) -> None:
 
     monkeypatch.setattr("worker.strategy_manager.get_db_session", lambda: _FakeSession())
     monkeypatch.setattr("worker.crud.update_worker_status", lambda *args, **kwargs: None)
+    # 构造入口在 start_crypto_live / start_rl_live 里，直接替换构造器返回 None
+    # （业务语义：None = 同步器缺失，线程内跳过成交轮询，不阻断启动）
+    monkeypatch.setattr(
+        "worker.strategy_manager.StrategyManager._build_live_trade_sync",
+        staticmethod(lambda *args, **kwargs: None),
+    )
 
 
 def test_start_crypto_live_assembles_driver_and_stop_shutdowns(monkeypatch, tmp_path):
