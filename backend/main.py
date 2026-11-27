@@ -69,6 +69,7 @@ from share import (
 )
 from share import router as share_router  # 分享系统路由
 from strategy import router as strategy_router
+from strategy.routes import preview_router
 from utils.log_routes import router as log_router
 from websocket.routes import router as websocket_router
 from worker import router as worker_router
@@ -119,6 +120,7 @@ app.include_router(indicator_alerts_router)  # 指标信号提醒规则 CRUD/测
 app.include_router(indicators_router)
 app.include_router(marketdata_router)  # /chart 订单簿快照/OI/资金费率历史补充接口
 app.include_router(strategy_router)
+app.include_router(preview_router, prefix="/api/v1")  # /api/v1/strategies/preview 价格计划预览（spec §3.3）
 app.include_router(backtest_router)
 app.include_router(jobs_router)  # GET /api/v1/jobs/queue 进程池队列观测
 app.include_router(realtime_router)

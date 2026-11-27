@@ -25,6 +25,7 @@ import ast
 import hashlib
 import json
 import time
+from importlib import import_module
 from pathlib import Path
 
 from axon_bridge.llm import classify_llm_error
@@ -142,6 +143,33 @@ class StrategyType(Enum):
 
     RULE = "rule"
     RL = "rl"
+
+
+class PlanPreviewError(ValueError):
+    """价格计划预览显式失败；code 供路由层转 422 并给前端区分入口隐藏 / 缺参考价"""
+
+    def __init__(self, code: str, detail: str):
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+
+
+def _has_price_plan_method(path) -> bool:
+    """AST 静态探测：文件内任一 class 声明了 price_plan 方法即视为有计划能力。
+
+    注册表采用静态解析（见 _parse_strategy_file），探测同样走 AST 而非运行时
+    import：列表页要逐策略探测，绝不能为探测而 import 用户策略模块（副作用隔离）。
+    """
+    try:
+        tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    except OSError, SyntaxError, ValueError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == "price_plan":
+                    return True
+    return False
 
 
 class StrategyService:
@@ -504,6 +532,60 @@ class StrategyService:
 
         return info
 
+    def has_price_plan(self, name: str) -> bool:
+        """单点封装协议探测（spec §3.2 的 has_price_plan(name)）"""
+        info = self.get_strategy(name)
+        return bool(info.get("has_price_plan")) if isinstance(info, dict) else bool(info.has_price_plan)
+
+    def preview_price_plan(self, name: str, params: dict | None = None, ref_price: float | None = None) -> dict:
+        """闭式计算价格计划。公式权威在 strategy/price_plan.py，本方法只做装载与校验。
+
+        - 未声明 price_plan 协议 → PlanPreviewError("PLAN_UNSUPPORTED")
+        - ref_price 回退链：显式入参 → params["ref_price"] → 无锚即报 REF_PRICE_REQUIRED
+        """
+        info = self.get_strategy(name)
+        if info is None:
+            # get_strategy 对不存在策略返回 None（404 语义由调用方收口），这里统一折进
+            # PlanPreviewError：preview 的失败面只有一个异常类型，code 区分给前端
+            raise PlanPreviewError("PLAN_NOT_FOUND", f"策略 {name} 不存在")
+        if not self.has_price_plan(name):
+            raise PlanPreviewError("PLAN_UNSUPPORTED", f"策略 {name} 未声明 price_plan 协议，无价格计划可预览")
+        # 注册表 params 是 [{name, type, default, ...}] 列表形态，先平铺成 {name: default} 再做覆盖
+        defaults = {
+            p["name"]: p.get("default") for p in (info.get("params") or []) if isinstance(p, dict) and p.get("name")
+        }
+        resolved = {**defaults, **(params or {})}
+        ref = float(ref_price) if ref_price is not None else resolved.get("ref_price")
+        if ref is None or float(ref) <= 0:
+            raise PlanPreviewError("REF_PRICE_REQUIRED", "缺少有效参考价 ref_price：计划预览必须锚定最新收盘价")
+        try:
+            module = import_module(f"strategies.{name}")
+        except ImportError as exc:
+            raise PlanPreviewError("PLAN_LOAD_FAILED", f"策略 {name} 模块加载失败：{exc}") from exc
+        # 类定位不依赖解析元数据键名（静态/运行时口径可能漂移）：按 “BaseStrategy 子类且声明 price_plan” 扫描。
+        # 函数内 import：strategy/__init__ 链路会回调本模块，顶部 import 有循环加载风险（与既有 lazy import 惯例一致）
+        from .base import BaseStrategy
+
+        impl = next(
+            (
+                o
+                for o in vars(module).values()
+                if isinstance(o, type)
+                and issubclass(o, BaseStrategy)
+                and o is not BaseStrategy
+                and callable(getattr(o, "price_plan", None))
+            ),
+            None,
+        )
+        if impl is None:
+            raise PlanPreviewError("PLAN_UNSUPPORTED", f"策略 {name} 未声明 price_plan 协议")
+        raw = impl.price_plan(resolved, float(ref))
+        # 同源 schema 校验：结构非法在信任边界统一拦截（price_plan 顶层 import 有策略模块缓存时序风险，维持函数内）
+        from .price_plan import PricePlan
+
+        plan = PricePlan.model_validate(raw)
+        return {**plan.model_dump(), "params_resolved": resolved}
+
     def save_strategy(self, name: str, content: str) -> dict[str, Any]:
         """保存策略文件（成功落盘后旁路记录一条版本快照）"""
         file_path = self.strategy_dir / f"{name}.py"
@@ -743,6 +825,7 @@ class StrategyService:
             "source": "files",
             "strategy_type": strategy_type,
             "strategy_class": strategy_class,
+            "has_price_plan": _has_price_plan_method(self.strategy_dir / f"{name}.py"),
         }
 
     @staticmethod

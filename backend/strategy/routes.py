@@ -7,12 +7,14 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from pydantic import Field
 
 from common.schemas import ApiResponse
 from utils.auth import get_current_user
 from utils.logger import LogType, get_logger
 
 from .schemas import (
+    BaseSchema,
     StrategyDetailRequest,
     StrategyGenerateRequest,
     StrategyGenerateResponse,
@@ -22,7 +24,7 @@ from .schemas import (
     StrategyUploadRequest,
     StrategyUploadResponse,
 )
-from .service import StrategyService
+from .service import PlanPreviewError, StrategyService
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -352,3 +354,34 @@ def api_reparse_strategy(
     if info is None:
         raise HTTPException(status_code=404, detail=f"策略不存在: {strategy_name}")
     return ApiResponse(code=0, message="重新解析完成", data=_clean_parse_info(info))
+
+
+# ==================== 价格计划预览（spec §3.3） ====================
+
+preview_router = APIRouter(prefix="/strategies", tags=["strategies"])
+
+
+class PricePlanPreviewRequest(BaseSchema):
+    """预览请求：策略模块名 + 覆盖参数 + 锚定参考价"""
+
+    strategy_name: str = Field(..., description="策略模块名（注册表 name）")
+    params: dict[str, Any] = Field(default_factory=dict, description="参数覆盖；缺省用策略默认参数")
+    ref_price: float | None = Field(None, description="参考价（最新收盘）；缺省回退 params.ref_price")
+
+
+@preview_router.post(
+    "/preview",
+    response_model=ApiResponse,
+    summary="价格计划预览（闭式计算，非行情预测）",
+    description="按策略声明的 price_plan 协议闭式计算预计下单价位；与 worker 启动固化的执行计划出自同一纯函数（spec §3.1）",
+)
+async def preview_price_plan(body: PricePlanPreviewRequest):
+    # strategy_name 会拼进文件路径（get_strategy/能 import 模块名），必须先过安全校验
+    _validate_strategy_name(body.strategy_name)
+    try:
+        plan = get_strategy_service().preview_price_plan(body.strategy_name, body.params, body.ref_price)
+    except PlanPreviewError as exc:
+        # 预览显式失败统一 422：错误体带 code，前端区分 PLAN_UNSUPPORTED（隐藏入口）
+        # 与 REF_PRICE_REQUIRED / PLAN_LOAD_FAILED / PLAN_NOT_FOUND（提示性错误）
+        raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.detail}) from exc
+    return ApiResponse(code=0, message="价格计划预览成功", data=plan)

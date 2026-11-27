@@ -90,6 +90,7 @@ class StrategyInfo(BaseSchema):
     source: str = Field(default="files", description="策略来源")
     strategy_type: str | None = Field(default=None, description="策略类型 rule/rl")
     strategy_class: str | None = Field(default=None, description="策略类名")
+    has_price_plan: bool = False  # 是否声明 price_plan 计划协议（前端据此做入口显隐，spec §3.2）
 
 
 class StrategyListData(BaseModel):
