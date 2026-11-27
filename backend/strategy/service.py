@@ -561,9 +561,13 @@ class StrategyService:
             raise PlanPreviewError("PLAN_NOT_FOUND", f"策略 {name} 不存在")
         if not self.has_price_plan(name):
             raise PlanPreviewError("PLAN_UNSUPPORTED", f"策略 {name} 未声明 price_plan 协议，无价格计划可预览")
-        # 注册表 params 是 [{name, type, default, ...}] 列表形态，先平铺成 {name: default} 再做覆盖
+        # 注册表 params 是 [{name, type, default, ...}] 列表形态，先平铺成 {name: default} 再做覆盖。
+        # default 为 None 的项不注入（如 position_limit：AST 提取不到 self.config.xxx 字面量默认值）：
+        # 键存在但值为 None 会顶掉公式函数里 params.get(k, default) 的兜底常量，float(None) 直接 500
         defaults = {
-            p["name"]: p.get("default") for p in (info.get("params") or []) if isinstance(p, dict) and p.get("name")
+            p["name"]: p["default"]
+            for p in (info.get("params") or [])
+            if isinstance(p, dict) and p.get("name") and p.get("default") is not None
         }
         resolved = {**defaults, **(params or {})}
         ref = float(ref_price) if ref_price is not None else resolved.get("ref_price")

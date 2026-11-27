@@ -37,6 +37,26 @@ def test_grid_preview_ref_outside_range_warns():
     assert body["warnings"], "参考价在区间外必须有 warnings（spec §6 网格出界）"
 
 
+def test_preview_empty_params_uses_formula_fallbacks():
+    """回归：params={} 时前端自动预览的真实口径。
+
+    注册表里 default=None 的参数（position_limit——AST 提取不到 self.config.xxx
+    字面量）不得注入 resolved，否则键存在值为 None 顶掉公式函数的兜底常量，
+    float(None) 直接 500（曾导致创建 Worker 价格计划预览全挂）。
+    """
+    r = client.post("/api/v1/strategies/preview", json={"strategy_name": "grid", "params": {}, "ref_price": 61658.8})
+    assert r.status_code == 200
+    body = r.json()["data"]
+    assert len(body["levels"]) > 0
+    assert all(v is not None for v in body["params_resolved"].values())
+
+    r2 = client.post(
+        "/api/v1/strategies/preview", json={"strategy_name": "martingale", "params": {}, "ref_price": 61658.8}
+    )
+    assert r2.status_code == 200
+    assert "position_limit" not in r2.json()["data"]["params_resolved"]
+
+
 def test_preview_missing_ref_price_422():
     r = client.post("/api/v1/strategies/preview", json={"strategy_name": "grid", "params": GRID_PARAMS})
     assert r.status_code == 422
