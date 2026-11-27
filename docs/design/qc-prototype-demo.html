@@ -523,6 +523,36 @@
   .gl { stroke:var(--bd); }
   .xhl { stroke:var(--bd-2); stroke-dasharray:3 4; }
   svg.candles { display:block; width:100%; height:300px; cursor:crosshair; }
+  /* ---- v6 · 价格计划预览（策略编辑器 · 闭式计算 预览=实盘同源） ---- */
+  .plan-grid { display:grid; grid-template-columns: 1fr 300px; gap:14px; align-items:stretch; }
+  @media (max-width:1080px) { .plan-grid { grid-template-columns:1fr; } }
+  .plan-chart { position:relative; border:1px solid var(--bd); border-radius:10px; overflow:hidden; background:color-mix(in srgb, var(--fg) 2%, transparent); }
+  #plSvg { display:block; width:100%; height:340px; cursor:crosshair; }
+  .pl-tip { position:absolute; z-index:5; pointer-events:none; max-width:280px; padding:6px 9px; border-radius:8px;
+    background:var(--bg-2); border:1px solid var(--bd-2); box-shadow:0 8px 22px rgba(0,0,0,.16); font-size:11px; line-height:1.55; color:var(--fg); }
+  .pl-tip .t { font-weight:700; }
+  .pl-tip .mono { color:var(--fg-3); }
+  .lv-line { transition:opacity .12s; }
+  .lv-line.hl { stroke-width:2.4 !important; opacity:1 !important; }
+  .lv-hit { stroke:transparent; stroke-width:9; cursor:pointer; }
+  .plan-side { display:flex; flex-direction:column; gap:11px; min-width:0; }
+  .plan-side .field-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .pfield { display:flex; flex-direction:column; gap:3px; }
+  .pfield label { font-size:11px; color:var(--fg-3); }
+  .pfield input { width:100%; box-sizing:border-box; padding:5px 8px; border:1px solid var(--bd); border-radius:7px;
+    background:var(--bg); color:var(--fg); font:inherit; font-size:12px; }
+  .pfield input:focus { outline:none; border-color:var(--primary); }
+  .pl-sum { display:flex; flex-wrap:wrap; gap:6px; }
+  .pl-warn { font-size:11.5px; line-height:1.6; color:var(--warn); background:color-mix(in srgb, var(--warn) 9%, transparent);
+    border:1px solid color-mix(in srgb, var(--warn) 32%, transparent); border-radius:8px; padding:7px 10px; }
+  .pl-warn:empty { display:none; }
+  .lv-wrap { max-height:300px; overflow:auto; border:1px solid var(--bd); border-radius:10px; margin-top:12px; }
+  .lv-wrap .gt { margin:0; border:none; }
+  .lv-wrap .gt tbody tr.hlon { background:color-mix(in srgb, var(--primary) 8%, transparent); }
+  .lv-lbl { display:inline-block; min-width:34px; text-align:center; padding:1px 7px; border-radius:99px; font-size:10.5px; font-weight:700; }
+  .lv-lbl.buy { color:var(--up); background:color-mix(in srgb, var(--up) 12%, transparent); }
+  .lv-lbl.sell { color:var(--down); background:color-mix(in srgb, var(--down) 12%, transparent); }
+  .lv-lbl.tp { color:var(--info); background:color-mix(in srgb, var(--info) 12%, transparent); }
   .ohlc-row { margin-top:9px; padding-top:8px; border-top:1px dashed color-mix(in srgb, var(--fg) 10%, transparent);
     font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric:tabular-nums;
     font-size:10.5px; color:var(--fg-3); display:flex; gap:14px; flex-wrap:wrap; }
@@ -1293,6 +1323,7 @@
             <button class="tab on" role="tab" aria-selected="true" data-pane="sd-overview">总览</button>
             <span class="tab dis" title="原型只展开总览与决策页签">交易</span>
             <button class="tab" role="tab" aria-selected="false" data-pane="sd-decisions">决策<span class="newdot"></span></button>
+            <button class="tab" role="tab" aria-selected="false" data-pane="sd-plan">价格计划</button>
             <span class="tab dis" title="原型只展开总览与决策页签">风控</span>
             <span class="tab dis" title="原型只展开总览与决策页签">参数</span>
             <span class="tab dis" title="原型只展开总览与决策页签">日志</span>
@@ -1389,6 +1420,9 @@
               </div>
               <p class="ws-note">录制行来自 <code>logs/worker/worker_{id}.jsonl</code>（<code>/workers/{id}/decisions</code>）；展开读同文件 <code>_seq</code> 行（<code>state / questions / s1_raw / s2_raw / s2_thinking</code>），与回测决策抽屉四区块同口径。</p>
             </div>
+            <!-- 4.A · 价格计划（固化态）：worker 启动时按当时参数固化；未实现协议的策略显示空态。
+                 内容随所选行切换：grid_eth_15m 有固化计划（含触发进度定格），其余显示协议空态 -->
+            <div class="sd-pane" id="sd-plan" hidden></div>
           </div>
         </div>
       </section>
@@ -2629,6 +2663,7 @@
         <div class="tabs" style="margin-bottom:12px">
           <span class="tab on" data-etab="code" aria-current="true">编辑器</span>
           <span class="tab" data-etab="prev">预览</span>
+          <span class="tab" data-etab="plan">价格计划</span>
         </div>
 
         <div id="edPaneCode">
@@ -2661,6 +2696,51 @@
               <span class="ichip on mono">mom_1h_slope</span>
               <button class="mini-btn" data-toast="因子选择器原型未实现">＋ 添加因子</button>
             </div>
+          </div>
+        </div>
+
+        <!-- v6 · 价格计划：闭式计算预览，预览 = 实盘同一价格序列（同源不漂移） -->
+        <div id="edPanePlan" hidden>
+          <div class="card" style="margin-top:0">
+            <div class="card-head">
+              <span class="card-title">价格计划预览</span>
+              <span class="card-sub mono">闭式公式计算 · 启动后按同一参数固化价格序列 · 非行情预测</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin:2px 0 12px">
+              <div class="seg" id="plSeg" role="group" aria-label="计划策略类型">
+                <button type="button" class="on" data-ptype="grid">网格</button>
+                <button type="button" data-ptype="martingale">分层马丁</button>
+              </div>
+              <span class="chip info mono" id="plTypeTag">grid_btc_1h</span>
+              <div class="head-right" style="gap:8px">
+                <span class="card-sub mono">参考价 <b id="plRef" class="mono">65,000.0</b></span>
+                <button class="btn primary" id="plStartBtn">以此计划启动 paper</button>
+              </div>
+            </div>
+            <div class="plan-grid">
+              <div class="plan-chart">
+                <svg id="plSvg" viewBox="0 0 860 340" preserveAspectRatio="none" aria-label="价格计划预览：历史 K 线 + 计划价位线"></svg>
+                <div class="pl-tip" id="plTip" hidden></div>
+              </div>
+              <div class="plan-side">
+                <div>
+                  <div class="card-sub" style="margin-bottom:7px">计划参数 <span class="mono" style="color:var(--fg-3)">· 改动 260ms 防抖重算</span></div>
+                  <div class="field-row" id="plFields"></div>
+                </div>
+                <div>
+                  <div class="card-sub" style="margin-bottom:7px">计划摘要</div>
+                  <div class="pl-sum" id="plSum"></div>
+                </div>
+                <div class="pl-warn" id="plWarn" role="alert"></div>
+              </div>
+            </div>
+            <div class="lv-wrap">
+              <table class="gt" aria-label="计划价位明细">
+                <thead id="plThead"></thead>
+                <tbody id="plTbody"></tbody>
+              </table>
+            </div>
+            <div class="card-foot"><span>预览价位由参数闭式推导，与启动后的策略运行同源；行情走势仅为参照背景，不构成预测。</span></div>
           </div>
         </div>
       </section>
@@ -2895,19 +2975,45 @@
   </div>
 
   <!-- ============ v4 · 弹窗层（统一遮罩 · ESC / 点遮罩关闭） ============ -->
+  <!-- v6 · 价格计划启动确认：启动前最后一次总览计划摘要与风险提示 -->
+  <div class="modal-mask" id="mPlanStart" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="启动 paper · 价格计划确认">
+      <div class="modal-head"><span class="modal-title">启动 paper · 价格计划确认</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
+      <div class="modal-body">
+        <table class="kvtab"><tbody id="plmRows"></tbody></table>
+        <div class="pl-warn" id="plmWarn"></div>
+        <span class="card-sub">启动后价格计划按当前参数固化为策略价格序列，期间改参数不会影响已启动 worker（预览 = 实盘同源）。</span>
+      </div>
+      <div class="modal-foot"><button class="btn" data-close>返回调整参数</button><button class="btn primary" data-close data-toast="已按价格计划启动 paper worker（原型）">确认启动</button></div>
+    </div>
+  </div>
   <div class="modal-mask" id="mWorker" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-label="创建 Worker">
       <div class="modal-head"><span class="modal-title">创建 Worker</span><button class="modal-x" data-close aria-label="关闭">✕</button></div>
       <div class="modal-body">
         <div class="mfield"><label>选择策略</label>
-          <select class="msel" id="wkStrat"><option>dual_ma_btc_4h</option><option>dual_ma_eth_1d</option><option>obv_div_btc_4h</option><option>grid_btc_1h</option><option>rl_btc_hourly_ppo</option></select></div>
+          <select class="msel" id="wkStrat"><option>dual_ma_btc_4h</option><option>dual_ma_eth_1d</option><option>obv_div_btc_4h</option><option>grid_btc_1h</option><option>martingale_btc_1h</option><option>rl_btc_hourly_ppo</option></select></div>
         <div class="mfield"><label>Worker 名称</label><input class="minput mono" id="wkName" placeholder="rl-btc-hourly 风格小写连字符"></div>
         <div class="mfield"><label>描述（可选）</label><input class="minput" placeholder="例：4h 双均线实盘观察仓"></div>
         <div class="m2col">
           <div class="mfield"><label>交易所</label><select class="msel"><option selected>binance</option><option>okx</option></select></div>
-          <div class="mfield"><label>交易标的</label><select class="msel"><option selected>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option></select></div>
+          <div class="mfield"><label>交易标的</label><select class="msel" id="wkSymbol"><option selected>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option></select></div>
         </div>
         <div class="mfield"><label>初始资金</label><input class="minput" value="100,000"></div>
+        <!-- 4.B · 创建前自检：策略实现 price_plan 协议 → 按默认参数 + 所选标的现价预览；
+             创建弹窗不含参数表单（参数创建后在编辑器调），此处语义 = 默认参数合理性与每标的匹配自检 + warnings 提前拦截 -->
+        <div class="mfield" id="wkPlanBox">
+          <label>价格计划（创建前自检）<span class="chip quiet" style="margin-left:6px">默认参数 · 所选标的现价</span></label>
+          <div id="wkPlanNone" class="pl-warn" style="color:var(--fg-3); background:color-mix(in srgb, var(--fg) 4%, transparent); border-color:var(--bd)">该策略未实现 price_plan 协议 → 计划入口自动隐藏（自定义策略实现 price_plan 类方法即启用）。</div>
+          <div id="wkPlanBody" hidden>
+            <div class="pl-sum" id="wkPlanSum"></div>
+            <div class="pl-warn" id="wkPlanWarn" style="margin-top:6px"></div>
+            <div id="wkChart" style="margin-top:8px; border:1px solid var(--bd); border-radius:10px; overflow:hidden"></div>
+            <div style="margin-top:8px"><span class="mini-btn" id="wkPlanMore">展开完整价位表</span></div>
+            <div id="wkPlanDetail" hidden style="margin-top:8px; max-height:210px; overflow:auto; border:1px solid var(--bd); border-radius:10px"></div>
+          </div>
+          <p class="mHint" style="margin-top:8px">调参实时预览在策略编辑器「价格计划」页签；创建仅落库不启动，启动前的固化核对走启动确认弹窗。</p>
+        </div>
         <p class="mHint">创建后进入策略智能体列表，默认 paper 模式，切实盘需风控签字（原型演示）。</p>
       </div>
       <div class="modal-foot"><button class="btn" data-close>取消</button><button class="btn primary" id="jsWorkerGo">创建</button></div>
@@ -4125,6 +4231,7 @@
         b.setAttribute('aria-selected', String(on));
       });
       qAll('.sd-pane').forEach(function (p) { p.hidden = p.id !== pane; });
+      if (pane === 'sd-plan') renderSdPlan(); /* 每次切入按当前 worker 渲染（hidden 时 SVG 宽度不可测） */
     }
     function saOpen(row) {
       if (!row) return;
@@ -4159,6 +4266,137 @@
         qAll('#sd-decisions .detail-block').forEach(function (d) { d.classList.remove('show'); });
         if (willShow) target.classList.add('show');
       });
+    });
+
+    /* ---- 4.A · worker 详情「价格计划」页签（固化态）+ 列表展开摘要 chips ----
+       语义区分：策略编辑器 tab = 调参预览；worker 页 = 启动时固化的执行中计划（含触发进度）。
+       真实实现数据来自 GET /api/v1/workers/{id}/plan（启动时按当时参数固化存 DB）。
+       demo 仅 grid_eth_15m 配置固化快照，其余策略渲染协议空态 = 未实现 price_plan 时的自动行为 */
+    var SD_PLANS = {
+      grid_eth_15m: {
+        pt: 'grid', ref: 3960.5, hit: 3, stopped: true, fixedAt: '11-22 14:05',
+        /* 固化参数 = 启动该 worker 时用户调过的参数（≠ 编辑器默认值）→ 体现「固化当时」语义 */
+        params: { lower: 3720, upper: 4260, levels: 12, limit: 0.8 },
+        /* hit 为示意计数：真实实现按成交回报（fill 关联层索引）标记，demo 固定前 3 档已触发 */
+        note: '固化 = worker 启动时把当时代入参数算出的价格序列存档（GET /workers/{id}/plan）；期间改参数不影响已启动 worker。运行中 worker 随 bar 推进刷新已触发标记与「下一触发价位」提示；已停止 worker 定格在最后状态。'
+      }
+    };
+    function sdPlanSvg(plan, cfg) {
+      var host = document.getElementById('sd-plan');
+      var W = Math.max(560, Math.min(1120, (host.clientWidth || 780) - 4)), H = 250, KPX = W - 148;
+      var bars = window.plWalk(778, cfg.ref * 1.008, 90);
+      var f = cfg.ref / bars[bars.length - 1].c; /* 纯视觉：参照序列尾点对齐当前价 */
+      bars = bars.map(function (b) { return { o: b.o * f, h: b.h * f, l: b.l * f, c: b.c * f }; });
+      var lo = Infinity, hi = -Infinity, i;
+      bars.forEach(function (b) { if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; });
+      plan.rows.forEach(function (r) { if (r.price < lo) lo = r.price; if (r.price > hi) hi = r.price; });
+      var pad = (hi - lo) * 0.02 || 1; lo -= pad; hi += pad;
+      function y(v) { return 8 + (hi - v) / (hi - lo) * (H - 16); }
+      function fp(v) { return window.plFmt(v); }
+      var bw = KPX / bars.length, cs = Math.max(1.4, bw * 0.48), s = '';
+      s += '<rect x="' + KPX + '" y="0" width="' + (W - KPX) + '" height="' + H + '" style="fill:var(--bge)" stroke="var(--bd)" stroke-width="1"/>';
+      [0.2, 0.4, 0.6, 0.8].forEach(function (t) { var yy = (8 + t * (H - 16)).toFixed(1); s += '<line x1="0" y1="' + yy + '" x2="' + KPX + '" y2="' + yy + '" class="gl"/>'; });
+      for (i = 0; i < bars.length; i++) {
+        var b = bars[i], x = ((i + 0.5) * bw).toFixed(1), up = b.c >= b.o;
+        s += '<line x1="' + x + '" y1="' + y(b.h).toFixed(1) + '" x2="' + x + '" y2="' + y(b.l).toFixed(1) + '" class="' + (up ? 'wup' : 'wdn') + '" stroke-width="1"/>' +
+          '<rect x="' + (x - cs / 2).toFixed(1) + '" y="' + y(Math.max(b.o, b.c)).toFixed(1) + '" width="' + cs.toFixed(1) + '" height="' + Math.max(1, y(Math.min(b.o, b.c)) - y(Math.max(b.o, b.c))).toFixed(1) + '" class="' + (up ? 'cup' : 'cdn') + '"/>';
+      }
+      function actChar(r) { return r.action === 'buy' ? '买' : r.action === 'sell' ? '卖' : r.action === 'tp' ? '盈' : '中'; }
+      /* 价位线 + 当前价线：按 rows 原序绘制（与标签排布解耦） */
+      plan.rows.forEach(function (r, pi) {
+        var hit = pi < cfg.hit;
+        var col = r.action === 'buy' ? 'var(--up)' : r.action === 'sell' ? 'var(--down)' : 'var(--bd-2)';
+        s += '<line x1="0" y1="' + y(r.price).toFixed(1) + '" x2="' + KPX + '" y2="' + y(r.price).toFixed(1) + '" style="stroke:' + col + '" stroke-width="' + (hit ? 1.7 : 1) + '" stroke-dasharray="' + (hit ? 'none' : '5 4') + '" opacity="' + (hit ? 0.92 : 0.5) + '"/>';
+      });
+      s += '<line x1="0" y1="' + y(cfg.ref).toFixed(1) + '" x2="' + KPX + '" y2="' + y(cfg.ref).toFixed(1) + '" style="stroke:var(--primary)" stroke-width="1.4"/>';
+      /* 右缘标签：rows 按价格升序（y 递减），贪心必须自上而下按 y 升序进行——
+         档位标签与当前价标签同池排布，行距 ≥12px；底部钳制溢出则整体回弹 */
+      var tags = plan.rows.map(function (r, pi) {
+        return { preco: y(r.price), hit: pi < cfg.hit, txt: (pi < cfg.hit ? '✓ ' : '· ') + actChar(r) + ' ' + fp(r.price) };
+      });
+      tags.push({ preco: y(cfg.ref), cur: true, hit: true, txt: '当前 ' + fp(cfg.ref) });
+      tags.sort(function (a, b) { return a.preco - b.preco; });
+      var lastTag = 5;
+      tags.forEach(function (t) { t.py = Math.min(H - 5, Math.max(t.preco + 3, lastTag + 12)); lastTag = t.py; });
+      var spill = Math.max(0, lastTag - (H - 5));
+      if (spill) tags.forEach(function (t) { t.py = Math.max(9, t.py - spill); });
+      tags.forEach(function (t) {
+        var st = t.cur ? 'font-weight:700; fill:var(--primary)' : t.hit ? 'fill:var(--fg)' : 'fill:var(--fg-3)';
+        s += '<text x="' + (KPX + 8) + '" y="' + t.py.toFixed(1) + '" font-size="9.5" style="font-family:ui-monospace,Menlo,monospace; ' + st + '">' + t.txt + '</text>';
+      });
+      return '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="display:block; height:auto" role="img" aria-label="固化价格计划示意图">' + s + '</svg>';
+    }
+    function renderSdPlan() {
+      var pane = document.getElementById('sd-plan');
+      if (!pane || !sdCurrent) return;
+      var strat = sdCurrent.dataset.strategy || '';
+      var cfg = SD_PLANS[strat];
+      if (!cfg || !window.plCompute || !window.plWalk) {
+        pane.innerHTML =
+          '<div style="display:flex; flex-direction:column; gap:10px; padding:28px 6px 12px">' +
+          '<span class="chip quiet" style="align-self:flex-start">无固化价格计划</span>' +
+          '<p style="font-size:12px; line-height:1.8; color:var(--fg-3); max-width:680px">策略 <b class="mono">' + escH(strat || '—') +
+          '</b> 未实现 <code>price_plan</code> 协议 → 启动时没有可固化的价格序列，本页签为空态（正式实现中 <code>has_price_plan=false</code> 的 worker 不渲染此页签入口）。</p>' +
+          '<p style="font-size:12px; line-height:1.8; color:var(--fg-2); max-width:680px">自定义策略实现 <code>price_plan(params, ref_price)</code> 类方法即自动启用全链路：创建弹窗自检 → 编辑器实时预览 → 启动固化 → 本页签展示执行中计划与触发进度。</p>' +
+          '<p class="ws-note" style="margin:0; max-width:680px">' + (cfg ? cfg.note : '') + '</p></div>';
+        return;
+      }
+      var plan = window.plCompute(cfg.pt, cfg.params, cfg.ref);
+      var fmt = window.plFmt, p2 = window.plPct;
+      var nextTxt = cfg.stopped ? '—（已停止）' : (plan.rows[cfg.hit] ? fmt(plan.rows[cfg.hit].price) + '（' + p2((plan.rows[cfg.hit].price - cfg.ref) / cfg.ref) + '）' : '—');
+      var head =
+        '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">' +
+        '<b style="font-size:13px">固化价格计划</b>' +
+        '<span class="chip info mono">' + escH(strat) + '</span>' +
+        '<span class="chip quiet">固化于 ' + cfg.fixedAt + '</span>' +
+        (cfg.stopped ? '<span class="chip down">已停止 · 计划定格</span>' : '<span class="chip info"><span class="pdot"></span>执行中</span>') +
+        '</div>' +
+        '<p class="ws-note" style="margin-top:6px">' + cfg.note + '</p>';
+      var facts =
+        '<div class="pl-sum" style="margin-top:10px">' +
+        plan.sum.map(function (x) { return '<span class="s-chip mono">' + x + '</span>'; }).join('') +
+        '<span class="s-chip mono">当前价 ' + fmt(cfg.ref) + '</span>' +
+        '<span class="s-chip mono">已触发 <b class="up">' + cfg.hit + '/' + plan.rows.length + '</b></span>' +
+        '<span class="s-chip mono">下一触发 ' + nextTxt + '</span>' +
+        '</div>';
+      var svg = '<div class="plan-chart" style="margin-top:10px">' + sdPlanSvg(plan, cfg) + '</div>';
+      var tb = '';
+      plan.rows.forEach(function (r, i) {
+        var cls = r.action === 'buy' ? 'buy' : r.action === 'tp' ? 'tp' : 'sell';
+        var st;
+        if (i < cfg.hit) st = '<span class="chip ok" style="font-size:10px">已触发 ✓</span>';
+        else if (!cfg.stopped && i === cfg.hit) st = '<span class="chip info" style="font-size:10px">下一触发</span>';
+        else st = '<span class="mono" style="font-size:10.5px; color:var(--fg-4)">距 ' + p2((r.price - cfg.ref) / cfg.ref) + '</span>';
+        tb += '<tr><td class="c-mono">' + (i + 1) + '</td><td class="c-mono" style="text-align:right">' + fmt(r.price) + '</td>' +
+          '<td><span class="lv-lbl ' + cls + '">' + (r.action === 'buy' ? '买' : r.action === 'tp' ? '止盈' : r.action === 'mid' ? '中' : '卖') + '</span></td>' +
+          '<td><span style="font-size:11px; color:var(--fg-2)">' + r.label + (r.note ? ' <span class="mono" style="font-size:10px; color:var(--fg-4)">' + r.note + '</span>' : '') + '</span></td>' +
+          '<td class="c-mono" style="text-align:right">' + p2(r.ratio, 1).replace('+', '') + '</td>' +
+          '<td style="text-align:right">' + st + '</td></tr>';
+      });
+      var table =
+        '<div class="lv-wrap" style="margin-top:10px"><table class="gt"><thead><tr><th>#</th><th style="text-align:right">计划价</th><th>动作</th><th>含义</th><th style="text-align:right">目标仓位</th><th style="text-align:right">状态</th></tr></thead><tbody>' +
+        tb + '</tbody></table></div>';
+      pane.innerHTML = head + facts + svg + table;
+    }
+    /* 列表就地展开的价格计划摘要（4.A 第二层）：仅带固化计划的策略显示，无则返回 '' → 入口自动隐藏 */
+    function saPlanChips(strat) {
+      var cfg = SD_PLANS[strat];
+      if (!cfg || !window.plCompute) return '';
+      var plan = window.plCompute(cfg.pt, cfg.params, cfg.ref);
+      var fmt = window.plFmt;
+      var next = cfg.stopped ? '—（已停止）' : (plan.rows[cfg.hit] ? fmt(plan.rows[cfg.hit].price) : '—');
+      return '<div class="card-sub" style="margin-top:11px">价格计划摘要 · 固化于 <span class="mono">' + cfg.fixedAt + '</span>（' + (cfg.stopped ? '已停止 · 定格' : '执行中') + '）</div>' +
+        '<div class="pl-sum" style="margin-top:6px">' +
+        plan.sum.map(function (x) { return '<span class="s-chip mono">' + x + '</span>'; }).join('') +
+        '<span class="s-chip mono">当前价 ' + fmt(cfg.ref) + '</span>' +
+        '<span class="s-chip mono">已触发 <b class="up">' + cfg.hit + '/' + plan.rows.length + '</b></span>' +
+        '<span class="s-chip mono">下一触发 ' + next + '</span></div>' +
+        '<div class="card-sub" style="margin-top:6px">完整序列与触发进度见详情页「价格计划」页签</div>';
+    }
+    var sdPlanT = null;
+    window.addEventListener('resize', function () {
+      var p = document.getElementById('sd-plan');
+      if (p && !p.hidden && sdCurrent && SD_PLANS[sdCurrent.dataset.strategy]) { clearTimeout(sdPlanT); sdPlanT = setTimeout(renderSdPlan, 200); }
     });
 
     /* ---- 回测中心：行 → 就地展开（一次一行；点新行收旧行、点已展开行收自己） ---- */
@@ -4455,6 +4693,7 @@
         '<tr><td class="k">交易所 · 周期</td><td class="v mono">' + r.dataset.exch + ' · ' + r.dataset.tf + '</td></tr>' +
         '<tr><td class="k">运行时长</td><td class="v mono">' + r.dataset.dur + '</td></tr></tbody></table>' +
         err +
+        saPlanChips(r.dataset.strategy) +
         '<div class="card-sub" style="margin-top:11px">最近决策（示意）</div>' +
         '<div class="mono" style="font-size:11px; line-height:1.9">' +
         '<div>13:05 · Buy · 仓位 12% · conf 0.82 · ' + r.dataset.tf + ' 突破 20 bar 高点，量比 1.4</div>' +
@@ -4872,6 +5111,216 @@
       });
     })();
 
+    /* ================= v6 · 价格计划预览（策略编辑器三个入口之一） =================
+       闭式公式计算计划价位，与后端 price_plan.py 同源：预览 = 启动后策略运行的价格序列。
+       K 线仅作视觉参照背景（固定种子随机游走），不代表行情预测。 */
+    (function () {
+      var svg = document.getElementById('plSvg');
+      if (!svg) return;
+
+      /* 固定种子随机游走生成参照 K 线（mulberry32）：walk 抽成通用生成器，
+         详情页「价格计划」页签用不同起点/根数复用同一视觉口径 */
+      function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+      function walk(seed, start, n) {
+        var r = mulberry32(seed), c = start, out = [];
+        for (var p = 0; p < n; p++) {
+          var drift = (r() - 0.5) * 0.011 + Math.sin(p / 14) * 0.0016;
+          var o = c;
+          c = Math.max(0.01, c * (1 + drift));
+          out.push({ o: o, h: Math.max(o, c) * (1 + r() * 0.004), l: Math.min(o, c) * (1 - r() * 0.004), c: c, v: 0.25 + r() });
+        }
+        return out;
+      }
+      var BARS = 120, bars = walk(20261127, 65000, BARS);
+      var REF = bars[BARS - 1].c; /* 参考价 = 参照序列最新收盘（正式实现传 ref_price） */
+      window.plWalk = walk; window.plBars = bars;
+
+      /* 计划参数定义：字段与 backend/strategy/price_plan.py 的执行器入参一致 */
+      var FIELDS = {
+        grid: [
+          { k: 'lower', label: '区间下界', v: 58000 }, { k: 'upper', label: '区间上界', v: 72000 },
+          { k: 'levels', label: '网格档数', v: 20, int: 1 }, { k: 'limit', label: '仓位上限（权益占比）', v: 1.0 }
+        ],
+        martingale: [
+          { k: 'spacing', label: '每层间距 %', v: 2.0 }, { k: 'spacingMul', label: '间距乘数', v: 1.5 },
+          { k: 'layers', label: '加仓层数', v: 5, int: 1 }, { k: 'base', label: '初始仓位（% of 上限）', v: 10 },
+          { k: 'mult', label: '仓位倍数', v: 2.0 }, { k: 'maxMult', label: '倍数硬上限', v: 4 },
+          { k: 'tp', label: '止盈 %（对加权均价）', v: 1.0 }
+        ]
+      };
+      var ptype = 'grid', lines = [], curPT = null, redrawT = null;
+
+      function fmt(v, d) { var s = (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(d == null ? 1 : d); return s.replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+      function pct(v, d) { return (v >= 0 ? '+' : '') + (v * 100).toFixed(d == null ? 2 : d) + '%'; }
+      function val(k) { var f = FIELDS[ptype]; for (var x = 0; x < f.length; x++) if (f[x].k === k) return f[x].v; return 0; }
+      function curParams() { var o = {}; FIELDS[ptype].forEach(function (f) { o[f.k] = f.v; }); return o; }
+
+      /* —— 闭式计划计算（唯一公式源）：网格与分层马丁共用本函数。
+         策略编辑器、启动确认、创建 Worker 弹窗、worker 详情固化计划全走这里，
+         呼应 spec 的「预览 = 实盘同源」纪律 —— demo 中公式同样只有一份。 —— */
+      function computePlan(pt, P, ref) {
+        if (pt === 'grid') {
+          var n = Math.max(2, Math.round(P.levels)), lim = P.limit;
+          var step = (P.upper - P.lower) / n;
+          var rows = [];
+          for (var j = 0; j <= n; j++) {
+            var ratio = (j - n / 2) / (n / 2);        /* -1..1：相对中枢的档位系数 */
+            var target = -ratio * lim;                /* 取反 = 低吸高抛（低档 → 正目标 → 买/多） */
+            var act = j < n / 2 ? 'buy' : j > n / 2 ? 'sell' : 'mid';
+            rows.push({ price: P.lower + j * step, action: act, label: act === 'buy' ? '买入/加仓' : act === 'sell' ? '卖出/减仓' : '中枢', ratio: target });
+          }
+          return {
+            rows: rows,
+            warn: P.upper <= P.lower ? '区间上界必须大于下界，请修正参数。'
+              : (ref < P.lower || ref > P.upper) ? '当前参考价 ' + fmt(ref) + ' 在网格区间外：启动后将保持 hold 直到价格重新进入区间（自适应区间扩展已移除，出界不再自动调整）。'
+              : '',
+            sum: ['档距 ' + fmt(step), '档位线 ' + (n + 1) + ' 条', '价格范围 ' + fmt(P.lower) + ' ~ ' + fmt(P.upper), '中枢 ' + fmt((P.lower + P.upper) / 2)]
+          };
+        }
+        /* 分层马丁：第 k 层价 = 入场价 ×(1−Σ 间距×乘数^(k−1))，仓位 ×倍数^k 截断硬上限 */
+        var L = Math.max(1, Math.round(P.layers));
+        var mrows = [], wsum = 0, posSum = 0, price = ref;
+        for (var k2 = 0; k2 < L; k2++) {
+          if (k2 > 0) price -= ref * (P.spacing / 100) * Math.pow(P.spacingMul, k2 - 1);
+          var m = Math.min(Math.pow(P.mult, k2), P.maxMult);
+          var pos = P.base / 100 * m;
+          posSum += pos; wsum += pos * price;
+          mrows.push({ price: price, action: 'buy', label: k2 === 0 ? '建仓' : '第 ' + (k2 + 1) + ' 层加仓', ratio: pos, note: '倍数 ×' + (+m.toFixed(2)) + (m >= P.maxMult ? '（已截断）' : '') });
+        }
+        var avg = posSum > 0 ? wsum / posSum : ref, tp = avg * (1 + P.tp / 100);
+        mrows.push({ price: tp, action: 'tp', label: '篮子止盈（平全部）', ratio: posSum, note: '加权均价 ' + fmt(avg) + ' → ' + pct(P.tp / 100, 1) });
+        return {
+          rows: mrows,
+          warn: P.base > 0 && posSum > 1
+            ? '满层累计仓位 ' + pct(posSum, 0).replace('+', '') + ' 权益，超过仓位上限 ' + pct(P.limit || 1, 0).replace('+', '') + '。马丁是爆仓陷阱，层数/倍数请压到可承受范围（max_multiplier 建议 ≤ 4）。'
+            : (price <= 0 ? '深层间距过大，层价已为负，请减小层数或间距。' : ''),
+          sum: ['满层累计 ' + pct(posSum, 0).replace('+', '') + ' 权益', '层区间 ' + fmt(mrows[0].price) + ' ~ ' + fmt(price), '篮子止盈 ' + fmt(tp), '层数 ' + L]
+        };
+      }
+      /* 供同 script 的其他区块复用（创建 Worker 弹窗 / worker 详情固化计划） */
+      window.plCompute = computePlan; window.plFmt = fmt; window.plPct = pct; window.plDefaults = FIELDS;
+
+      /* —— 渲染：SVG（参照 K 线 + 计划价位线）+ 参数表单 + 摘要 + 表格 —— */
+      function inputRows() {
+        var h = '';
+        FIELDS[ptype].forEach(function (f) {
+          h += '<div class="pfield"><label class="mono">' + f.label + '</label><input type="number" step="any" data-k="' + f.k + '" value="' + f.v + '"></div>';
+        });
+        document.getElementById('plFields').innerHTML = h;
+        [].slice.call(document.querySelectorAll('#plFields input')).forEach(function (inp) {
+          inp.addEventListener('input', function () {
+            var f = FIELDS[ptype]; for (var x = 0; x < f.length; x++) if (f[x].k === inp.dataset.k) f[x].v = inp.value === '' ? 0 : parseFloat(inp.value);
+            clearTimeout(redrawT); redrawT = setTimeout(render, 260);  /* 防抖重算 */
+          });
+        });
+      }
+
+      function render() {
+        var plan = computePlan(ptype, curParams(), REF);
+        document.getElementById('plTypeTag').textContent = ptype === 'grid' ? 'grid_btc_1h' : 'martingale_btc_1h';
+        document.getElementById('plRef').textContent = fmt(REF);
+        document.getElementById('plSum').innerHTML = plan.sum.map(function (s) { return '<span class="s-chip mono">' + s + '</span>'; }).join('');
+        document.getElementById('plWarn').textContent = plan.warn;
+
+        /* 表格 */
+        document.getElementById('plThead').innerHTML = '<tr><th>#</th><th style="text-align:right">计划价</th><th>动作</th><th style="text-align:right">仓位 / 目标</th><th>备注</th></tr>';
+        var tb = '';
+        plan.rows.forEach(function (r, ri) {
+          var cls = r.action === 'buy' ? 'buy' : r.action === 'tp' ? 'tp' : 'sell';
+          tb += '<tr data-ri="' + ri + '"><td class="c-mono">' + (ri + 1) + '</td>' +
+            '<td class="c-mono" style="text-align:right">' + fmt(r.price) + '</td>' +
+            '<td><span class="lv-lbl ' + cls + '">' + r.label + '</span></td>' +
+            '<td class="c-mono" style="text-align:right">' + (r.action === 'tp' ? '累计' : pct(r.ratio, 1)) + '</td>' +
+            '<td class="c-mono" style="color:var(--fg-3)">' + (r.note || (ptype === 'grid' ? '距参考价 ' + pct(r.price / REF - 1) : '')) + '</td></tr>';
+        });
+        document.getElementById('plTbody').innerHTML = tb;
+
+        /* SVG：宽度自适应（viewBox=实际像素宽，避免 preserveAspectRatio 拉伸文字） */
+        var W = svg.clientWidth > 80 ? svg.clientWidth : 860, H = 340, PT = 16, PB = 252, VT = 262, VB = 330;
+        var KPX = W - 205;                                 /* 左侧 K 线区，右侧留计划价格标签条 */
+        var all = [];
+        bars.forEach(function (b) { all.push(b.h, b.l); });
+        plan.rows.forEach(function (r) { all.push(r.price); });
+        var hi = Math.max.apply(null, all), lo = Math.min.apply(null, all);
+        var pad = (hi - lo) * 0.06 || 1; hi += pad; lo -= pad;
+        function py(v) { return PT + (hi - v) / (hi - lo) * (PB - PT); }
+        var bw = KPX / BARS;
+        var h = '<line x1="0" y1="' + PB + '" x2="' + W + '" y2="' + PB + '" class="gl"/>';
+        for (var j = 0; j < BARS; j++) {
+          var b = bars[j], up = b.c >= b.o, cx = (j * bw + bw / 2).toFixed(1);
+          var yO = py(b.o), yC = py(b.c), top = Math.min(yO, yC), bh = Math.max(Math.abs(yO - yC), 1.2);
+          h += '<line x1="' + cx + '" y1="' + py(b.h).toFixed(1) + '" x2="' + cx + '" y2="' + py(b.l).toFixed(1) + '" class="' + (up ? 'wup' : 'wdn') + '" stroke-width="1"/>';
+          h += '<rect x="' + (j * bw + bw * 0.18).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + (bw * 0.64).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="1" class="' + (up ? 'cup' : 'cdn') + '" opacity=".92"/>';
+          var dv = b.v / 1.25 * (VB - VT);
+          h += '<rect x="' + (j * bw + bw * 0.18).toFixed(1) + '" y="' + (VB - dv).toFixed(1) + '" width="' + (bw * 0.64).toFixed(1) + '" height="' + dv.toFixed(1) + '" rx="1" class="' + (up ? 'vu' : 'vd') + '"/>';
+        }
+        /* 参考价横线（实线 primary） */
+        h += '<line x1="0" x2="' + W + '" y1="' + py(REF).toFixed(1) + '" y2="' + py(REF).toFixed(1) + '" style="stroke:var(--primary)" stroke-width="1.2" opacity=".8"/>';
+        /* 计划价位线：虚线 + 末端标签 + 透明命中区 */
+        lines = [];
+        plan.rows.forEach(function (r, ri) {
+          var y = py(r.price).toFixed(1);
+          var col = r.action === 'buy' ? 'var(--up)' : r.action === 'tp' ? 'var(--info)' : r.action === 'sell' ? 'var(--down)' : 'var(--primary)';
+          h += '<line class="lv-line" data-ri="' + ri + '" x1="0" x2="' + KPX + '" y1="' + y + '" y2="' + y + '" style="stroke:' + col + '" stroke-width="1.1" stroke-dasharray="5 4" opacity=".75"/>';
+          h += '<line class="lv-line" data-ri="' + ri + '" x1="' + KPX + '" x2="' + W + '" y1="' + y + '" y2="' + y + '" style="stroke:' + col + '" stroke-width="1.6" opacity=".75"/>';
+          h += '<rect x="' + (W - 196) + '" y="' + (y - 7.5) + '" width="188" height="15" rx="4" style="fill:var(--bg)" opacity=".85"/>';
+          h += '<text x="' + (W - 192) + '" y="' + (+y + 3.4) + '" font-size="9.5" style="fill:' + col + ';font-weight:600">' + (r.action === 'buy' ? '买' : r.action === 'tp' ? '盈' : r.action === 'sell' ? '卖' : '中') + ' ' + fmt(r.price) + (r.action === 'tp' ? ' · 止盈' : '') + '</text>';
+          h += '<line class="lv-hit" data-ri="' + ri + '" x1="0" x2="' + W + '" y1="' + y + '" y2="' + y + '"/>';
+        });
+        svg.innerHTML = h;
+        [].slice.call(svg.querySelectorAll('.lv-line')).forEach(function (el) { lines[+el.dataset.ri] = el; });
+        curPT = plan;
+      }
+      window.plRedraw = render; /* tab 首次打开时重画（取实际宽度） */
+
+      /* hover 联动：表格行 ↔ 价位线 互高亮，行悬停出 tooltip */
+      var tip = document.getElementById('plTip'), wrapEl = svg.parentElement;
+      document.getElementById('plTbody').addEventListener('mouseover', function (e) {
+        var tr = e.target.closest('tr[data-ri]');
+        if (!tr) return;
+        [].slice.call(document.querySelectorAll('#plTbody tr')).forEach(function (x) { x.classList.toggle('hlon', x === tr); });
+        if (lines[+tr.dataset.ri]) lines[+tr.dataset.ri].classList.add('hl');
+      });
+      document.getElementById('plTbody').addEventListener('mouseleave', function () {
+        [].slice.call(document.querySelectorAll('#plTbody tr.hlon')).forEach(function (x) { x.classList.remove('hlon'); });
+        [].slice.call(svg.querySelectorAll('.lv-line.hl')).forEach(function (x) { x.classList.remove('hl'); });
+        tip.hidden = true;
+      });
+      svg.addEventListener('mousemove', function (e) {
+        var hit = e.target.closest && e.target.closest('.lv-hit');
+        if (!hit || !curPT) { tip.hidden = true; return; }
+        var ri = +hit.dataset.ri, r = curPT.rows[ri];
+        [].slice.call(document.querySelectorAll('#plTbody tr')).forEach(function (x) { x.classList.toggle('hlon', +x.dataset.ri === ri); });
+        if (lines[ri]) lines[ri].classList.add('hl');
+        var box = wrapEl.getBoundingClientRect();
+        tip.innerHTML = '<div class="t">' + r.label + '</div><div class="mono">计划价 ' + fmt(r.price) + ' · 距参考 ' + pct(r.price / REF - 1) + '</div><div class="mono">' + (r.action === 'tp' ? '累计仓位 ' + pct(r.ratio, 0).replace('+', '') : '目标仓位 ' + pct(r.ratio, 1)) + (r.note ? ' · ' + r.note : '') + '</div>';
+        tip.hidden = false;
+        var tx = Math.min(e.clientX - box.left + 14, box.width - 240), ty = Math.max(6, e.clientY - box.top - 10);
+        tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+      });
+      svg.addEventListener('mouseleave', function () { tip.hidden = true; });
+
+      /* 类型切换（.seg 通用高亮由全局处理器负责，这里只换参数与重画） */
+      document.querySelectorAll('#plSeg [data-ptype]').forEach(function (b) {
+        b.addEventListener('click', function () { ptype = b.dataset.ptype; inputRows(); render(); });
+      });
+
+      /* 启动确认弹窗：填充当前计划摘要（复用统一 modal 体系） */
+      document.getElementById('plStartBtn').addEventListener('click', function () {
+        var plan = curPT || computePlan(ptype, curParams(), REF);
+        document.getElementById('plmRows').innerHTML =
+          '<tr><td class="k">策略类型</td><td class="v mono">' + (ptype === 'grid' ? 'grid_btc_1h（等距网格）' : 'martingale_btc_1h（分层马丁）') + '</td></tr>' +
+          '<tr><td class="k">计划价位</td><td class="v mono">' + plan.rows.length + ' 条 · ' + fmt(Math.min.apply(null, plan.rows.map(function (r) { return r.price; }))) + ' ~ ' + fmt(Math.max.apply(null, plan.rows.map(function (r) { return r.price; }))) + '</td></tr>' +
+          '<tr><td class="k">参考价</td><td class="v mono">' + fmt(REF) + '</td></tr>' +
+          '<tr><td class="k">要点</td><td class="v">' + plan.sum.map(function (s) { return '<span class="s-chip mono">' + s + '</span>'; }).join(' ') + '</td></tr>';
+        document.getElementById('plmWarn').textContent = plan.warn || '无风险提示项（demo 固定提示：马丁满层仓位与网格出界 hold 已内置告警逻辑）。';
+        openModal('mPlanStart');
+      });
+
+      inputRows(); render();
+      window.addEventListener('resize', function () { clearTimeout(redrawT); redrawT = setTimeout(render, 200); });
+    })();
+
     /* ================= v4 · 弹窗体系 / toast / 新页面行为 ================= */
     /* ---- toast：右下角 mono 小字 · 2.5s 自动消失 · 最多 3 条 ---- */
     var twrap = null;
@@ -4941,6 +5390,8 @@
         qAll('[data-etab]').forEach(function (x) { x.classList.toggle('on', x === tb); });
         document.getElementById('edPaneCode').hidden = tb.dataset.etab !== 'code';
         document.getElementById('edPanePrev').hidden = tb.dataset.etab !== 'prev';
+        document.getElementById('edPanePlan').hidden = tb.dataset.etab !== 'plan';
+        if (tb.dataset.etab === 'plan' && window.plRedraw) plRedraw(); /* 首次打开时按当前容器尺寸重画 */
       }
     });
     /* ---- 版本历史抽屉（编辑器入口）：
@@ -5080,7 +5531,86 @@
         if (!has) s.insertAdjacentHTML('afterbegin', '<option>' + escH(xp) + '</option>');
         s.value = xp;
       }
+      wkPlanRender(); /* 4.B：打开弹窗即按当前策略/标的渲染默认参数计划自检 */
     };
+
+    /* ---- 4.B · 创建 Worker 弹窗：默认参数价格计划自检 ----
+       创建弹窗不含参数表单（参数创建后在编辑器调）→ 预览语义 = 默认参数 + 所选标的现价的
+       合理性自检 + warnings 提前拦截；公式/默认参数都与策略编辑器同一份（window.plCompute / plDefaults） */
+    var WK_SYM_PRICE = { 'BTC/USDT': 68412.5, 'ETH/USDT': 3926.0, 'SOL/USDT': 182.4 };
+    function planTypeOf(name) { return /grid/i.test(name) ? 'grid' : /martingale|马丁/i.test(name) ? 'martingale' : ''; }
+    function wkPlanTable(plan, ref) {
+      var h = '<table class="gt"><thead><tr><th>#</th><th style="text-align:right">计划价</th><th>动作</th><th>含义</th><th style="text-align:right">目标仓位</th><th style="text-align:right">距现价</th></tr></thead><tbody>';
+      plan.rows.forEach(function (r, i) {
+        var cls = r.action === 'buy' ? 'buy' : r.action === 'tp' ? 'tp' : 'sell';
+        h += '<tr><td class="c-mono">' + (i + 1) + '</td><td class="c-mono" style="text-align:right">' + window.plFmt(r.price) + '</td>' +
+          '<td><span class="lv-lbl ' + cls + '">' + (r.action === 'buy' ? '买' : r.action === 'tp' ? '止盈' : r.action === 'mid' ? '中' : '卖') + '</span></td>' +
+          '<td><span style="font-size:11px; color:var(--fg-2)">' + r.label + (r.note ? ' <span class="mono" style="font-size:10px; color:var(--fg-4)">' + r.note + '</span>' : '') + '</span></td>' +
+          '<td class="c-mono" style="text-align:right">' + window.plPct(r.ratio, 1).replace('+', '') + '</td>' +
+          '<td class="c-mono" style="text-align:right; color:var(--fg-3)">' + window.plPct((r.price - ref) / ref) + '</td></tr>';
+      });
+      return h + '</tbody></table>';
+    }
+    /* 迷你 K 线：目的单一 = 可视化订单价格范围（价位带相对现价的位置与密度），
+       不做轴/十字光标/标签（完整交互图在编辑器与 worker 详情页）；
+       纵轴范围 = K 线 ∪ 计划价位 ∪ 现价 → 出界场景（如 ETH 对 BTC 网格区间）直接呈现「带在远处」 */
+    function wkPlanSvg(plan, ref, pt, P, sym) {
+      var W = 520, H = 116, n = 70;
+      var seed = { 'BTC/USDT': 3001, 'ETH/USDT': 3002, 'SOL/USDT': 3003 }[sym] || 3009;
+      var bars = window.plWalk(seed, ref * 0.992, n);
+      var lo = ref, hi = ref, i;
+      bars.forEach(function (b) { if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; });
+      plan.rows.forEach(function (r) { if (r.price < lo) lo = r.price; if (r.price > hi) hi = r.price; });
+      var pad = (hi - lo) * 0.04 || 1; lo -= pad; hi += pad;
+      function y(v) { return ((hi - v) / (hi - lo) * H).toFixed(1); }
+      var bw = W / n, cs = Math.max(1, bw * 0.5), s = '';
+      if (pt === 'grid') { /* 订单价格带：网格区间整体罩一层淡色，一眼看出挂单区间 */
+        s += '<rect x="0" y="' + y(P.upper) + '" width="' + W + '" height="' + Math.max(2, y(P.lower) - y(P.upper)).toFixed(1) + '" style="fill:color-mix(in srgb, var(--info) 9%, transparent)"/>';
+      }
+      for (i = 0; i < n; i++) {
+        var b = bars[i], x = ((i + 0.5) * bw).toFixed(1), up = b.c >= b.o;
+        s += '<line x1="' + x + '" y1="' + y(b.h) + '" x2="' + x + '" y2="' + y(b.l) + '" class="' + (up ? 'wup' : 'wdn') + '" stroke-width="0.8" opacity="0.75"/>' +
+          '<rect x="' + (x - cs / 2).toFixed(1) + '" y="' + y(Math.max(b.o, b.c)) + '" width="' + cs.toFixed(1) + '" height="' + Math.max(1, y(Math.min(b.o, b.c)) - y(Math.max(b.o, b.c))).toFixed(1) + '" class="' + (up ? 'cup' : 'cdn') + '" opacity="0.75"/>';
+      }
+      plan.rows.forEach(function (r) { /* 价位细线：买绿 / 卖红 / 止盈琥珀 / 中枢灰 */
+        var col = r.action === 'buy' ? 'var(--up)' : r.action === 'sell' ? 'var(--down)' : r.action === 'tp' ? 'var(--warn)' : 'var(--bd-2)';
+        s += '<line x1="0" y1="' + y(r.price) + '" x2="' + W + '" y2="' + y(r.price) + '" style="stroke:' + col + '" stroke-width="1" stroke-dasharray="4 3" opacity="0.75"/>';
+      });
+      s += '<line x1="0" y1="' + y(ref) + '" x2="' + W + '" y2="' + y(ref) + '" style="stroke:var(--primary)" stroke-width="1.3"/>';
+      return '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="display:block; height:auto" role="img" aria-label="订单价格范围示意图">' + s + '</svg>';
+    }
+    function wkPlanRender() {
+      var box = document.getElementById('wkPlanBox');
+      if (!box || !window.plCompute || !window.plDefaults) return;
+      var stratName = document.getElementById('wkStrat').value;
+      var pt = planTypeOf(stratName);
+      var ref = WK_SYM_PRICE[document.getElementById('wkSymbol').value] || 0;
+      var none = document.getElementById('wkPlanNone'), body = document.getElementById('wkPlanBody');
+      if (!pt) { none.hidden = false; body.hidden = true; return; } /* has_price_plan=false → 区块整体降级为说明行 */
+      none.hidden = true; body.hidden = false;
+      /* 默认参数取编辑器 FIELDS 初值（plDefaults）→ demo 中默认值也只有一份 */
+      var d = {}; window.plDefaults[pt].forEach(function (f) { d[f.k] = f.v; });
+      var plan = window.plCompute(pt, d, ref);
+      document.getElementById('wkPlanSum').innerHTML =
+        '<span class="s-chip mono">' + (pt === 'grid' ? '等距网格' : '分层马丁') + '</span>' +
+        plan.sum.map(function (x) { return '<span class="s-chip mono">' + x + '</span>'; }).join('');
+      document.getElementById('wkPlanWarn').textContent = plan.warn; /* pl-warn:empty 自动隐藏 */
+      document.getElementById('wkChart').innerHTML = wkPlanSvg(plan, ref, pt, d, document.getElementById('wkSymbol').value);
+      var det = document.getElementById('wkPlanDetail');
+      det.innerHTML = wkPlanTable(plan, ref);
+      det.hidden = true;
+      document.getElementById('wkPlanMore').textContent = '展开完整价位表';
+    }
+    (function () {
+      var st = document.getElementById('wkStrat'), sy = document.getElementById('wkSymbol'), more = document.getElementById('wkPlanMore');
+      if (st) st.addEventListener('change', wkPlanRender);
+      if (sy) sy.addEventListener('change', wkPlanRender);
+      if (more) more.addEventListener('click', function () {
+        var det = document.getElementById('wkPlanDetail');
+        det.hidden = !det.hidden;
+        more.textContent = det.hidden ? '展开完整价位表' : '收起价位表';
+      });
+    })();
     var jsWorkerGo = document.getElementById('jsWorkerGo');
     if (jsWorkerGo) jsWorkerGo.addEventListener('click', function () {
       var mk = document.getElementById('mWorker');
