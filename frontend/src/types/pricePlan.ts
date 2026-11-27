@@ -47,9 +47,19 @@ export interface WorkerPlanSummary {
   next_trigger: PlanNextTrigger | null;
 }
 
+// 详情页 chips：worker 已固化的标的及其固化状态（按存储顺序）
+export interface PlanSymbolState {
+  symbol: string;
+  state: 'fixed' | 'pending';
+}
+
 // GET /workers/{id}/plan 响应：pending 或 fixed+运行态
 export interface WorkerPlanResponse {
   state: 'fixed' | 'pending';
+  /** 当前快照对应的标的（v2 按标的多份存储；缺省为第一个标的） */
+  symbol?: string;
+  /** 该 worker 全部标的的固化状态（旧 v1 单份 worker 长度为 1） */
+  symbols?: PlanSymbolState[];
   ref_price?: number | null;
   plan?: PricePlan | null;
   triggered_count?: number;

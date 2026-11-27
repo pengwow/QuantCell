@@ -5,7 +5,7 @@
  * 包含表单验证、策略选择、交易所配置等功能
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Modal,
   Form,
@@ -41,47 +41,73 @@ import RiskControlForm, {
   sameRiskValues,
   type RiskFormValues,
 } from './RiskControlForm';
-import type { CreateWorkerRequest, StrategyInfo, StrategyParameter } from '../../types/worker';
+import type { CreateWorkerRequest, StrategyInfo } from '../../types/worker';
+import type { StrategyParam } from '../../types/backtest';
 import SymbolSelect from '@/components/SymbolSelect';
 
 const { Option } = Select;
 const { TextArea } = Input;
 
-// 根据参数类型渲染不同的输入控件
-const renderParamInput = (param: StrategyParameter, t: ReturnType<typeof useTranslation>['t']) => {
-  const { param_type, min_value, max_value } = param;
+// 策略参数 schema 来自后端 /strategy/list 的 params 元素（name/type/default/description/options，
+// 由 AST 解析 + 数据库覆盖合成）。受控渲染：值统一收在 strategyParams state，提交前过滤空值。
+const renderParamInput = (
+  param: StrategyParam,
+  t: ReturnType<typeof useTranslation>['t'],
+  value: unknown,
+  onChange: (v: unknown) => void,
+) => {
+  const type = (param.type || 'string').toLowerCase();
+  const placeholder = param.description || t('please_input_value');
 
-  switch (param_type) {
+  switch (type) {
     case 'int':
       return (
         <InputNumber
-          min={min_value}
-          max={max_value}
+          value={value as number | undefined}
+          onChange={(v) => onChange(v ?? undefined)}
+          precision={0}
           style={{ width: '100%' }}
-          placeholder={t('worker_param_placeholder_int', { min: min_value ?? '-', max: max_value ?? '-' })}
+          placeholder={placeholder}
         />
       );
     case 'float':
       return (
         <InputNumber
-          min={min_value}
-          max={max_value}
+          value={value as number | undefined}
+          onChange={(v) => onChange(v ?? undefined)}
           step={0.01}
-          precision={2}
           style={{ width: '100%' }}
-          placeholder={t('worker_param_placeholder_float', { min: min_value ?? '-', max: max_value ?? '-' })}
+          placeholder={placeholder}
         />
       );
     case 'bool':
       return (
-        <Select placeholder={t('please_select')}>
-          <Option value={true}>{t('yes')}</Option>
-          <Option value={false}>{t('no')}</Option>
-        </Select>
+        <Select
+          value={value as boolean | undefined}
+          onChange={onChange}
+          allowClear
+          placeholder={t('please_select')}
+          options={[
+            { value: true, label: t('yes') },
+            { value: false, label: t('no') },
+          ]}
+        />
+      );
+    case 'select':
+      return (
+        <Select
+          value={value as string | undefined}
+          onChange={onChange}
+          allowClear
+          placeholder={t('please_select')}
+          options={(param.options ?? []).map((opt) => ({ value: opt, label: opt }))}
+        />
       );
     case 'json':
       return (
         <TextArea
+          value={value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value)}
+          onChange={(e) => onChange(e.target.value)}
           rows={2}
           placeholder={t('worker_param_placeholder_json')}
         />
@@ -89,10 +115,20 @@ const renderParamInput = (param: StrategyParameter, t: ReturnType<typeof useTran
     case 'string':
     default:
       return (
-        <Input placeholder={param.description || t('please_input_value')} />
+        <Input
+          value={value == null ? '' : String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
       );
   }
 };
+
+// 提交与预览共用同一套空值过滤口径：空字符串 / null / undefined 一律不提交
+const cleanStrategyParams = (params: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined),
+  );
 
 // 时间周期列表
 // label 存 i18n key，渲染处经 t() 翻译
@@ -147,10 +183,14 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
 
   // 交易相关
 
-  // 策略参数
-  const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
+  // 策略参数：defs 是 schema（渲染字段），values 是表单当前值（初值 = schema default，用户可改可清）
+  const [strategyParamDefs, setStrategyParamDefs] = useState<StrategyParam[]>([]);
+  const [strategyParams, setStrategyParams] = useState<Record<string, unknown>>({});
   const [loadingParams, setLoadingParams] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
+
+  // 预览参数快照：与提交同一套空值过滤，保证预览与固化口径一致
+  const previewParams = useMemo(() => cleanStrategyParams(strategyParams), [strategyParams]);
 
   // Worker名称自动生成：用户手输过就不再覆盖（onChange 只在真实键入时触发，
   // setFieldValue 不触发，正好用作"是否手输"的判定标志）
@@ -193,11 +233,28 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     }
   };
 
-  // 策略参数在 worker 创建完成后才存在（后端 GET /workers/{id}/strategy/parameters），
-  // 创建流程无 worker_id 可查询，参数区块按空数据隐藏，避免无效请求
-  const fetchStrategyParams = async (_strategyId: number) => {
-    setStrategyParams([]);
-    setLoadingParams(false);
+  // 策略参数 schema：优先复用已拉取的列表项 params（/strategy/list 每项自带 AST 解析结果），
+  // 列表项为空（如资源策略无参数）再回退详情接口；初值取 schema default
+  const fetchStrategyParams = async (strategyId: number) => {
+    const selected = strategies.find((s) => s.id === strategyId);
+    setLoadingParams(true);
+    try {
+      let defs = ((selected?.params ?? []) as StrategyParam[]).filter((p) => p?.name);
+      if (defs.length === 0 && selected?.name) {
+        const detail = (await strategyApi.getStrategyDetail(selected.name)) as
+          | { params?: StrategyParam[] }
+          | null;
+        defs = (detail?.params ?? []).filter((p) => p?.name);
+      }
+      setStrategyParamDefs(defs);
+      setStrategyParams(Object.fromEntries(defs.map((p) => [p.name, p.default])));
+    } catch (error) {
+      console.error('获取策略参数失败:', error);
+      setStrategyParamDefs([]);
+      setStrategyParams({});
+    } finally {
+      setLoadingParams(false);
+    }
   };
 
   // 获取已启用的交易所列表
@@ -303,6 +360,12 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         },
       };
 
+      // 策略参数覆盖：空值字段不提交（后端按「策略行参数 < worker params」合并）
+      const cleanedParams = cleanStrategyParams(strategyParams);
+      if (Object.keys(cleanedParams).length > 0) {
+        requestData.params = cleanedParams;
+      }
+
       const result = await createWorker(requestData);
 
       if (result) {
@@ -320,7 +383,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         message.success(t('worker_create_success'));
         form.resetFields();
         nameTouchedByUserRef.current = false;
-        setStrategyParams([]);
+        setStrategyParamDefs([]);
+        setStrategyParams({});
         setSelectedStrategyId(null);
         onSuccess?.();
         onCancel();
@@ -337,7 +401,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const handleCancel = () => {
     form.resetFields();
     nameTouchedByUserRef.current = false;
-    setStrategyParams([]);
+    setStrategyParamDefs([]);
+    setStrategyParams({});
     setSelectedStrategyId(null);
     onCancel();
   };
@@ -402,6 +467,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 placeholder={t('select_strategy_title')}
                 loading={loadingStrategies}
                 showSearch
+                allowClear
                 // 回填到选择框只显示策略名，完整信息（名称+描述）在下拉项里展示
                 optionLabelProp="label"
                 // 下拉搜索同时匹配策略名与描述
@@ -413,7 +479,14 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                   return text.includes(input.toLowerCase());
                 }}
                 notFoundContent={loadingStrategies ? <Spin size="small" /> : t('no_strategies')}
-                onChange={(value: number) => {
+                onChange={(value: number | undefined) => {
+                  // 清空策略：参数 schema 与表单值一并重置
+                  if (value == null) {
+                    setSelectedStrategyId(null);
+                    setStrategyParamDefs([]);
+                    setStrategyParams({});
+                    return;
+                  }
                   setSelectedStrategyId(value);
                   fetchStrategyParams(value);
                   // 名称未手输时按所选策略自动生成（策略名+短码，避开现有 Worker 名单）
@@ -508,8 +581,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           />
         </Form.Item>
 
-        {/* 策略参数 */}
-        {strategyParams.length > 0 && (
+        {/* 策略参数（schema 来自 /strategy/list 的 params；初值 = default，可改可清） */}
+        {strategyParamDefs.length > 0 && (
           <>
             <Divider>
               <Space>
@@ -517,15 +590,19 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 {loadingParams && <Spin size="small" />}
               </Space>
             </Divider>
-            <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
+            <Card
+              size="small"
+              variant="borderless"
+              className="qc-card"
+              style={{ background: 'var(--qc-surface-muted)', boxShadow: 'none' }}
+            >
               <Row gutter={[12, 12]}>
-                {strategyParams.map((param) => (
-                  <Col span={12} key={param.param_name}>
+                {strategyParamDefs.map((param) => (
+                  <Col span={12} key={param.name}>
                     <Form.Item
-                      name={`param_${param.param_name}`}
                       label={
                         <Space>
-                          <span>{param.param_name}</span>
+                          <span>{param.name}</span>
                           {param.description && (
                             <Tooltip title={param.description}>
                               <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
@@ -533,10 +610,10 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                           )}
                         </Space>
                       }
-                      tooltip={param.description}
-                      rules={param.required ? [{ required: true, message: t('worker_please_input_param', { name: param.param_name }) }] : []}
                     >
-                      {renderParamInput(param, t)}
+                      {renderParamInput(param, t, strategyParams[param.name], (v) =>
+                        setStrategyParams((prev) => ({ ...prev, [param.name]: v })),
+                      )}
                     </Form.Item>
                   </Col>
                 ))}
@@ -701,13 +778,14 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           </Col>
         </Row>
 
-        {/* 价格计划自动预览：实时取价 + chips 切换（策略含 price_plan 才渲染） */}
+        {/* 价格计划自动预览：实时取价 + chips 切换（策略含 price_plan 才渲染）；参数跟随表单 */}
         {pricePlanStrategy && (
           <PricePlanAutoPreview
             strategyName={pricePlanStrategy.name}
             symbols={previewSymbols}
             exchange={watchedExchange}
             marketType={watchedMarketType}
+            params={previewParams}
           />
         )}
 

@@ -94,8 +94,11 @@ interface WorkerActions {
   cloneWorker: (workerId: number, newName: string) => Promise<Worker | null>;
 
   // 生命周期控制
-  /** refPrice：有价格计划的策略启动时锚定计划（透传给 lifecycle/start 的 body） */
-  startWorker: (workerId: number, refPrice?: number) => Promise<boolean>;
+  /**
+   * refPrice：有价格计划的策略启动时锚定计划（透传给 lifecycle/start 的 body）。
+   * 数字=单标的锚点；对象=多标的 { symbol: refPrice }（发 ref_prices）。
+   */
+  startWorker: (workerId: number, refPrice?: number | Record<string, number | null>) => Promise<boolean>;
   stopWorker: (workerId: number) => Promise<boolean>;
   restartWorker: (workerId: number) => Promise<boolean>;
 

@@ -3974,5 +3974,9 @@
   "pricePlan.chart_strategy_placeholder": "Select a price plan strategy",
   "pricePlan.chart_no_strategies": "No strategies available",
   "pricePlan.chart_preview_failed": "Preview failed: {{message}}",
-  "pricePlan.chart_replay_switch_tooltip": "Overlay price plan levels to compare with fills"
+  "pricePlan.chart_replay_switch_tooltip": "Overlay price plan levels to compare with fills",
+  "pricePlan.kline_load_failed": "Failed to load klines: {{message}}",
+  "pricePlan.kline_waiting_price": "Waiting for reference price…",
+  "pricePlan.pending_symbol": " (pending)",
+  "pricePlan.start_price_missing_hint": "Failed to fetch reference price for {{symbol}}; start submission will be blocked"
 }

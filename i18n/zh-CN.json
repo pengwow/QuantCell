@@ -3974,5 +3974,9 @@
   "pricePlan.chart_strategy_placeholder": "选择实现 price_plan 的策略",
   "pricePlan.chart_no_strategies": "无可用策略",
   "pricePlan.chart_preview_failed": "预览失败：{{message}}",
-  "pricePlan.chart_replay_switch_tooltip": "叠加价格计划档位线，与成交标记对照"
+  "pricePlan.chart_replay_switch_tooltip": "叠加价格计划档位线，与成交标记对照",
+  "pricePlan.kline_load_failed": "K线加载失败：{{message}}",
+  "pricePlan.kline_waiting_price": "等待参考价…",
+  "pricePlan.pending_symbol": "（未固化）",
+  "pricePlan.start_price_missing_hint": "{{symbol}} 参考价获取失败，将阻断启动提交"
 }

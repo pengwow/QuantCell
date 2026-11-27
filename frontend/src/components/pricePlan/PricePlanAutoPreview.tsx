@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Card, Space, Tag } from 'antd';
 import PricePlanSection from './PricePlanSection';
-import PricePlanMiniChart from './PricePlanMiniChart';
+import PricePlanKlineChart from './PricePlanKlineChart';
 import { usePricePlan } from '../../hooks/usePricePlan';
 import { useSymbolPrice } from '../../hooks/useSymbolPrice';
 
@@ -20,6 +20,8 @@ interface PricePlanAutoPreviewProps {
   symbols: string[];
   exchange: string | null | undefined;
   marketType: string | null | undefined;
+  /** 表单当前策略参数快照（空值已过滤）；缺省按空对象由后端补策略默认值 */
+  params?: Record<string, unknown>;
 }
 
 const PricePlanAutoPreview: React.FC<PricePlanAutoPreviewProps> = ({
@@ -27,6 +29,7 @@ const PricePlanAutoPreview: React.FC<PricePlanAutoPreviewProps> = ({
   symbols,
   exchange,
   marketType,
+  params,
 }) => {
   const { t } = useTranslation();
   // 激活 chip 所在标；用户增删标的后被删项自动收敛回首标的
@@ -35,16 +38,15 @@ const PricePlanAutoPreview: React.FC<PricePlanAutoPreviewProps> = ({
 
   const {
     data: price,
-    loading: priceLoading,
     error: priceError,
     refetch,
   } = useSymbolPrice({ symbol: current, marketType, exchange });
 
   const refPrice = price?.price ?? null;
-  // 预览参数恒传空对象：后端 resolve 时补策略文件默认值（spec 决策）
-  const { data: plan, error: planError, loading: planLoading } = usePricePlan({
+  // 预览参数跟随表单（StrategyCreateModal 传入过滤空值后的快照）
+  const { data: plan, error: planError } = usePricePlan({
     strategyName,
-    params: {},
+    params: params ?? {},
     refPrice,
   });
 
@@ -73,9 +75,16 @@ const PricePlanAutoPreview: React.FC<PricePlanAutoPreviewProps> = ({
             }
           />
         )}
-        <PricePlanMiniChart plan={plan ?? null} refPrice={refPrice} loading={priceLoading || planLoading} />
-        <PricePlanSection plan={plan ?? null} compact maxHeight={120} />
+        <PricePlanKlineChart
+          symbol={current}
+          exchange={exchange}
+          marketType={marketType}
+          plan={plan ?? null}
+          refPrice={refPrice}
+          height={260}
+        />
         {!priceError && planError && <Alert type="warning" showIcon message={planError} />}
+        <PricePlanSection plan={plan ?? null} compact maxHeight={120} />
       </Space>
     </Card>
   );

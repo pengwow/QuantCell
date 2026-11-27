@@ -147,6 +147,8 @@ export interface CreateWorkerRequest {
   trading_config?: TradingConfig;
   env_vars?: Record<string, string>;
   config?: Record<string, unknown>;
+  /** 创建时的策略参数覆盖（空值字段由调用方过滤掉；合并序：策略行参数 < worker params） */
+  params?: Record<string, unknown>;
 }
 
 // 更新Worker请求

@@ -197,9 +197,10 @@ const Worker = () => {
   // ============================================
 
   // 实际启动动作（原 handleStart 主体，防抖/错误分类/成功提示原样保留）：
-  // refPrice 有值时随启动请求固化价格计划锚点（无计划策略不传，行为不变）
+  // refPrice 有值时随启动请求固化价格计划锚点（无计划策略不传，行为不变）；
+  // 多标的场景传 { symbol: price } 映射，由后端按标的各落一份固化快照
   const doStart = useCallback(
-    async (worker: WorkerType, refPrice?: number) => {
+    async (worker: WorkerType, refPrice?: number | Record<string, number | null>) => {
       // 防重复点击
       if (submittingWorkerIds.has(worker.id)) return;
       setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
@@ -266,11 +267,13 @@ const Worker = () => {
       }
 
       // 有计划：确认弹窗。onOk 返回 rejection 时 antd 保持弹窗打开，形成「必须填参考价才能启动」闭环。
-      // params 传空对象：worker 响应不含策略参数字段，默认值由后端 preview resolved merge 按策略文件补齐
-      // 自动取价标的：worker 首标的（启动确认只取首标的价固化单份 plan，与后端
-      // start 单 ref_price → _persist_worker_price_plan 单份 plan 契约一致）
-      const firstSymbol = worker.trading_config?.symbols_config?.symbols?.[0] ?? null;
-      const refPriceRef: { current: number | null } = { current: null };
+      // 取价标的 = worker 全量标的；确认弹窗逐个静默取价写入 refPricesRef，onOk 按标的上报。
+      // params：worker 创建时的策略参数覆盖（config.strategy_params），预览仅展示；启动固化走后端完整合并。
+      const symbols = worker.trading_config?.symbols_config?.symbols ?? [];
+      const workerParams = (worker.config?.strategy_params ?? {}) as Record<string, unknown>;
+      const refPricesRef: { current: Record<string, number | null> } = {
+        current: Object.fromEntries(symbols.map((s) => [s, null])),
+      };
       modal.confirm({
         title: t('pricePlan.worker_confirm_title', { name: worker.name }),
         width: 520,
@@ -278,19 +281,21 @@ const Worker = () => {
         content: (
           <StartPlanConfirm
             strategyName={name as string}
-            symbol={firstSymbol}
+            symbols={symbols}
             exchange={worker.trading_config?.exchange ?? null}
             marketType={worker.trading_config?.market_type ?? null}
-            params={{}}
-            refPriceRef={refPriceRef}
+            params={workerParams}
+            refPricesRef={refPricesRef}
           />
         ),
         onOk: async () => {
-          if (refPriceRef.current == null) {
+          // 首标的参考价缺失即阻断（与后端「必须有锚点才固化」契约一致）
+          const first = symbols[0];
+          if (!first || refPricesRef.current[first] == null) {
             apiMessage.warning(t('pricePlan.worker_ref_price_required'));
             throw new Error('ref_price required');
           }
-          await doStart(worker, refPriceRef.current);
+          await doStart(worker, refPricesRef.current);
         },
       });
     },
