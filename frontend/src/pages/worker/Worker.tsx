@@ -267,12 +267,24 @@ const Worker = () => {
 
       // 有计划：确认弹窗。onOk 返回 rejection 时 antd 保持弹窗打开，形成「必须填参考价才能启动」闭环。
       // params 传空对象：worker 响应不含策略参数字段，默认值由后端 preview resolved merge 按策略文件补齐
+      // 自动取价标的：worker 首标的（启动确认只取首标的价固化单份 plan，与后端
+      // start 单 ref_price → _persist_worker_price_plan 单份 plan 契约一致）
+      const firstSymbol = worker.trading_config?.symbols_config?.symbols?.[0] ?? null;
       const refPriceRef: { current: number | null } = { current: null };
       modal.confirm({
         title: t('pricePlan.worker_confirm_title', { name: worker.name }),
         width: 520,
         icon: null,
-        content: <StartPlanConfirm strategyName={name as string} params={{}} refPriceRef={refPriceRef} />,
+        content: (
+          <StartPlanConfirm
+            strategyName={name as string}
+            symbol={firstSymbol}
+            exchange={worker.trading_config?.exchange ?? null}
+            marketType={worker.trading_config?.market_type ?? null}
+            params={{}}
+            refPriceRef={refPriceRef}
+          />
+        ),
         onOk: async () => {
           if (refPriceRef.current == null) {
             apiMessage.warning(t('pricePlan.worker_ref_price_required'));
