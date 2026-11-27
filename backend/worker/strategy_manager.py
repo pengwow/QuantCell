@@ -291,11 +291,31 @@ class StrategyManager:
                     f"[StrategyManager] {len(config_errors)} 个策略配置异常，已标记为 error 状态，请修复后重启"
                 )
 
-    async def start_strategy(self, worker_id: int) -> bool:
+    def _persist_worker_price_plan(
+        self, worker_id: int, strategy_name: str, params: dict, ref_price: float | None
+    ) -> None:
+        """把预览计划按启动参考价固化落 DB（同一 preview 纯函数，同源不漂移）"""
+        # 函数内 import：strategy.service 在模块加载期与 workers 包有循环依赖，
+        # 且 get_strategy_service 持有模块级单例，只在启动链路真正用到
+        from strategy.routes import get_strategy_service
+        from strategy.service import PlanPreviewError
+
+        svc = get_strategy_service()
+        if not svc.has_price_plan(strategy_name):
+            return
+        try:
+            plan = svc.preview_price_plan(strategy_name, params, ref_price)
+            crud.save_worker_price_plan(int(worker_id), plan, ref_price)
+        except PlanPreviewError as exc:
+            crud.save_worker_price_plan(int(worker_id), None, None)  # pending 占位而非空白
+            logger.warning("price plan pending worker_id=%s code=%s", worker_id, exc.code)
+
+    async def start_strategy(self, worker_id: int, ref_price: float | None = None) -> bool:
         """启动策略
 
         Args:
             worker_id: Worker ID
+            ref_price: 启动参考价（锚定固化价格计划；None 时计划落 pending）
 
         Returns:
             是否启动成功
@@ -313,7 +333,7 @@ class StrategyManager:
                 )
 
                 await worker_state_manager.transition(worker_id, "starting")
-                return await self._do_start_strategy(worker_id, worker, db)
+                return await self._do_start_strategy(worker_id, worker, db, ref_price=ref_price)
         except WorkerNotFoundException as e:
             logger.warning(f"[StrategyManager] {e.message}")
             return False
@@ -325,7 +345,7 @@ class StrategyManager:
             append_worker_error_log(worker_id, f"启动失败: {e}")
             return False
 
-    async def _do_start_strategy(self, worker_id: int, worker, db=None) -> bool:
+    async def _do_start_strategy(self, worker_id: int, worker, db=None, ref_price: float | None = None) -> bool:
         """实际执行策略启动操作
 
         使用 axon_quant 的 exchange adapter 替代 交易引擎的 TradingNode。
@@ -334,6 +354,7 @@ class StrategyManager:
             worker_id: Worker ID
             worker: Worker ORM 对象
             db: 数据库会话（可选）
+            ref_price: 启动参考价（锚定固化价格计划）
 
         Returns:
             是否启动成功
@@ -482,6 +503,14 @@ class StrategyManager:
         logger.info(
             f"[StrategyManager] 策略已加载: worker_id={worker_id}, strategy_class={type(strategy_instance).__name__}"
         )
+
+        # 价格计划固化（spec §3.3/§4.A）：与启动确认弹窗的 preview 互为镜像——
+        # 同一 price_plan 纯函数 + 同一 ref_price ⇒ 预览必然等于执行计划。
+        # 固化失败不阻断启动；落 pending 由 plan API 呈现
+        try:
+            self._persist_worker_price_plan(worker_id, strategy.name, params, ref_price)
+        except Exception as exc:
+            logger.warning("price plan persist failed worker_id=%s err=%s", worker_id, exc)
 
         # 规则/LLM 路由：testnet → LiveDriver 接合约测试网真实账户，其余按 paper 演练
         if rule_mode == "testnet":

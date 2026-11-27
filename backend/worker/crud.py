@@ -254,6 +254,73 @@ def update_worker_config(db: Session, worker_id: int, config: dict[str, Any]) ->
     return worker
 
 
+def _price_plan_entry(config: dict[str, Any] | None, plan: dict | None, ref_price: float | None) -> dict:
+    """组装写进 config 的 price_plan 固化条目（fixed/pending 两种形态）"""
+    return {
+        "state": "fixed" if plan is not None else "pending",
+        "ref_price": ref_price,
+        "plan": plan,
+        # fixed_at 仅在固化成功时记录；pending 占位不落时间
+        "fixed_at": datetime.now().isoformat() if plan is not None else None,
+    }
+
+
+def save_worker_price_plan(worker_id: str | int, plan: dict | None, ref_price: float | None) -> bool:
+    """把启动时的价格计划固化进 Worker.config['price_plan']（DB 即事实源）。
+
+    - plan 非 None → state=fixed；plan=None → state=pending 占位（fixed_at 清空）
+    - 与 update_worker_config 同样按「读到现状再合并」写入；调用点在启动链路
+      单线程内，不含与用户改 config 的并发窗口（见 update_worker_config 注释）
+
+    Returns:
+        worker 不存在时返回 False
+    """
+    try:
+        wid = int(worker_id)
+    except TypeError, ValueError:
+        return False
+    with get_db_session() as db:
+        worker = db.query(Worker).filter(Worker.id == wid).first()
+        if not worker:
+            return False
+        current_config = worker.get_config_dict()
+        current_config["price_plan"] = _price_plan_entry(current_config.get("price_plan"), plan, ref_price)
+        db.query(Worker).filter(Worker.id == wid).update(
+            {
+                "config": json.dumps(current_config),
+                "updated_at": datetime.now(),
+            },
+            synchronize_session=False,
+        )
+        db.commit()
+        return True
+
+
+def get_worker_price_plan(worker_id: str | int) -> dict | None:
+    """读取固化的价格计划；worker 不存在或从未固化过返回 None。
+
+    Returns:
+        {"state": fixed|pending, "ref_price", "plan", "fixed_at"}
+    """
+    try:
+        wid = int(worker_id)
+    except TypeError, ValueError:
+        return None
+    with get_db_session() as db:
+        worker = db.query(Worker).filter(Worker.id == wid).first()
+        if not worker:
+            return None
+        entry = worker.get_config_dict().get("price_plan")
+        if not isinstance(entry, dict):
+            return None
+        return {
+            "state": entry.get("state"),
+            "ref_price": entry.get("ref_price"),
+            "plan": entry.get("plan"),
+            "fixed_at": entry.get("fixed_at"),
+        }
+
+
 def delete_worker(db: Session, worker_id: int) -> bool:
     """删除Worker"""
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
@@ -277,13 +344,21 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
         msg = "源Worker不存在"
         raise ValueError(msg)
 
+    # 克隆不继承源 worker 的固化价格计划：计划由启动链路按当次 ref_price
+    # 重新固化，带着旧计划会让克隆在从未启动时显示一份 "fixed" 计划
+    cloned_config = source_worker.config if request.copy_config else "{}"
+    if request.copy_config:
+        cloned_cfg_dict = source_worker.get_config_dict()
+        cloned_cfg_dict.pop("price_plan", None)
+        cloned_config = json.dumps(cloned_cfg_dict)
+
     new_worker = Worker(
         name=request.new_name,
         description=source_worker.description,
         strategy_id=source_worker.strategy_id,
         trading_config=source_worker.trading_config if request.copy_config else "{}",
         env_vars=source_worker.env_vars if request.copy_config else "{}",
-        config=source_worker.config if request.copy_config else "{}",
+        config=cloned_config,
         status="stopped",
         # 克隆副本继承源 worker 的归属（P1-07 工人属地），保持属主不变
         owner_id=source_worker.owner_id,

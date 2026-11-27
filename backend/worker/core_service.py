@@ -726,7 +726,7 @@ class WorkerCoreService:
 
     # ==================== 启动 / 停止 / 重启 ====================
 
-    def start_worker(self, worker_id: int) -> dict:
+    def start_worker(self, worker_id: int, ref_price: float | None = None) -> dict:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
@@ -735,6 +735,7 @@ class WorkerCoreService:
 
         Args:
             worker_id: Worker ID
+            ref_price: 启动参考价（锚定固化价格计划；None 时计划落 pending）
 
         Returns:
             dict: {"worker_id": int, "status": str, "pid": int}
@@ -756,14 +757,14 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
         try:
-            return self._start_worker_in_process(worker_id)
+            return self._start_worker_in_process(worker_id, ref_price=ref_price)
         except WorkerOperationException:
             raise
         except Exception as e:
             logger.error(f"[WorkerCoreService] 进程内启动 Worker {worker_id} 失败: {e}")
             raise WorkerOperationException("启动", worker_id, message=str(e)) from e
 
-    def _start_worker_in_process(self, worker_id: int) -> dict:
+    def _start_worker_in_process(self, worker_id: int, ref_price: float | None = None) -> dict:
         """进程内直调 worker_system 启动策略（同步上下文入口）。
 
         本方法运行在工作线程（asyncio.to_thread / CLI 主线程），必须用
@@ -774,7 +775,7 @@ class WorkerCoreService:
 
         from .strategy_manager import worker_system
 
-        ok = asyncio.run(worker_system.start_strategy(worker_id))
+        ok = asyncio.run(worker_system.start_strategy(worker_id, ref_price=ref_price))
         if not ok:
             # start_strategy 吞掉内部异常后返回 False，真实原因落在
             # registry 的 error_message（其内部 update_status(error) 已写入）
@@ -804,13 +805,13 @@ class WorkerCoreService:
             logger.info(f"[WorkerCoreService] Worker {worker_id} 无运行时记录，视为已停止")
         return {"worker_id": worker_id, "status": "stopped"}
 
-    async def async_start_worker(self, worker_id: int) -> dict:
+    async def async_start_worker(self, worker_id: int, ref_price: float | None = None) -> dict:
         """异步启动 Worker（与 CLI 同步版本调用链一致，进程内直调 worker_system）。
 
         统一走 self.start_worker() 的同步实现，通过线程池执行，保证 FastAPI
         与 CLI 行为完全一致：进程内 Driver 路径启动，失败直接抛错不降级。
         """
-        logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
+        logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}, ref_price={ref_price}")
         # 不调用 _ensure_initialized()：进程内路径不依赖 trading_system，CLI/API 必须同语义
         try:
             success = await worker_state_manager.transition(worker_id, "starting")
@@ -835,7 +836,7 @@ class WorkerCoreService:
             # 后台异步执行启动逻辑，避免阻塞 API 响应
             async def _runner():
                 try:
-                    result = await asyncio.to_thread(self.start_worker, worker_id)
+                    result = await asyncio.to_thread(self.start_worker, worker_id, ref_price)
                     # start_strategy 成功路径（_finalize_start）内部已 transition(running)，
                     # 此处补转会被 running→running 拒绝并返回 False；保留它作为
                     # 启动实现变化时的幂等兜底（拒绝不抛错、调用方不检查返回值）

@@ -45,7 +45,8 @@ class TestCoreServiceInProcessIntegration:
         mock_worker_system.start_strategy = AsyncMock(return_value=True)
         with patch("worker.strategy_manager.worker_system", mock_worker_system):
             result = service._start_worker_in_process(11)
-        mock_worker_system.start_strategy.assert_awaited_once_with(11)
+        # ref_price 为启动参考价（价格计划固化），_start_worker_in_process 恒透传给 start_strategy
+        mock_worker_system.start_strategy.assert_awaited_once_with(11, ref_price=None)
         assert result["worker_id"] == 11
         assert result["status"] == "running"
         assert result["pid"] == os.getpid()
@@ -169,7 +170,8 @@ class TestCoreServicePublicMethods:
             ) as mock_start,
         ):
             result = service.start_worker(11)
-            mock_start.assert_called_once_with(11)
+            # ref_price 显式透传（缺省 None → 计划落 pending）
+            mock_start.assert_called_once_with(11, ref_price=None)
             assert result["status"] == "running"
 
     def test_stop_worker_works_without_trading_system_init(self):

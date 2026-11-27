@@ -149,6 +149,12 @@ class WorkerCommand(BaseModel):
     params: dict[str, Any] | None = Field(None, description="命令参数")
 
 
+class WorkerStartRequest(BaseModel):
+    """启动请求（POST /workers/{id}/start 的可选 body；无 body = 全默认启动）"""
+
+    ref_price: float | None = Field(None, description="启动参考价（锚定并固化价格计划；缺省时计划落 pending）")
+
+
 class WorkerStatusResponse(BaseModel):
     """Worker状态响应"""
 

@@ -209,6 +209,8 @@ async def list_workers(
 
     all_states = await worker_state_manager.get_all_states()
     items = result.get("items", [])
+    # 运行时快照一次取齐（进程内缓存）：last_price 用于推导计划触发进度
+    runtime_snapshots = {r.worker_id: r.to_dict() for r in strategy_registry.list_all()}
 
     for item in items:
         worker_id = item.get("id")
@@ -227,6 +229,17 @@ async def list_workers(
             item["_error_message"] = state.error_message
             # 优先使用实时状态覆盖数据库中的过时status值
             item["status"] = state.status
+
+        # 列表摘要 chip 数据源（spec §4.A 列表展开面板）：只带计数/下一触发，
+        # 不带全量 levels。config 随 items 的 to_dict 一起带出，零额外查询；
+        # 未固化/固化失败（pending 计划为空）的行不加 plan_summary 字段。
+        plan_entry = (item.get("config") or {}).get("price_plan")
+        plan = (plan_entry or {}).get("plan")
+        if plan:
+            item["plan_summary"] = {
+                "layer_total": len(plan.get("levels") or []),
+                **_plan_runtime_progress(plan, runtime_snapshots.get(worker_id)),
+            }
 
     return schemas.ApiResponse(code=0, message="success", data=result)
 
@@ -360,6 +373,79 @@ async def get_worker(
         result["_state_info"] = state.to_dict()
 
     return schemas.ApiResponse(code=0, message="success", data=result)
+
+
+def _plan_runtime_progress(plan: dict, snapshot: dict | None) -> dict:
+    """由最新价推导固化计划的运行态增量（spec §4.A：已触发打勾/淡化 + 下一触发）。
+
+    口径（tests/unit/worker/test_plan_runtime_progress.py 钉死）：triggered =
+    严格穿越（buy 跌破层价 / sell·tp 升破），恰在层价上不算；next_trigger =
+    按计划层序找第一个「未到价」的层（到价判定含相等——入口层恰在现价时不
+    重复提示，也不计入已触发）。
+    ponytail: 用最新价单点穿越近似触发计数，且层触发按计划层序推进（网格双向
+    挂单的并行语义取顺序近似）——停机期间跳空会少记，精确口径应回放 decisions
+    流（升级路径：decision type=plan_fill）。
+    """
+    last_price = None
+    if snapshot:
+        status = snapshot.get("status")
+        # status 兼容两种形态：runtime.to_dict 是字符串（取顶层 last_price），
+        # 旧式嵌套快照是 {"status": {"last_price": ...}}
+        last_price = (status.get("last_price") if isinstance(status, dict) else None) or snapshot.get("last_price")
+    levels = [lv for lv in (plan.get("levels") or []) if lv.get("action") in ("buy", "sell", "tp")]
+    if last_price is None or not levels:
+        return {"triggered_count": 0, "triggered_indexes": [], "next_trigger": None}
+    triggered = [
+        lv for lv in levels if (lv["price"] > last_price if lv["action"] == "buy" else lv["price"] < last_price)
+    ]
+    reached = {
+        lv["index"]
+        for lv in levels
+        if (lv["price"] >= last_price if lv["action"] == "buy" else lv["price"] <= last_price)
+    }
+    nxt = next((lv for lv in levels if lv["index"] not in reached), None)
+    return {
+        "triggered_count": len(triggered),
+        "triggered_indexes": [lv["index"] for lv in triggered],
+        "next_trigger": None
+        if nxt is None
+        else {
+            "price": nxt["price"],
+            "label": nxt.get("label"),
+            "distance_pct": round((nxt["price"] - last_price) / last_price * 100, 2),
+        },
+    }
+
+
+@router.get(
+    "/{worker_id}/plan",
+    response_model=schemas.ApiResponse,
+    dependencies=[Depends(check_worker_permission)],
+    summary="worker 固化价格计划（含运行态增量）",
+)
+@handle_worker_exceptions("获取Worker价格计划")
+async def get_worker_plan(worker_id: int):
+    """返回启动时固化的执行中计划（spec §4.A：改参数不影响运行中 worker）。
+
+    计划在启动时按 ref_price 固化进 Worker.config['price_plan']（DB 即事实源）；
+    无固化记录或计划为空时统一返回 pending。
+    """
+    stored = crud.get_worker_price_plan(str(worker_id))
+    if not stored or not stored.get("plan"):
+        return schemas.ApiResponse(code=0, message="success", data={"state": "pending", "plan": None})
+    # 运行态快照与 /{worker_id}/state 的 runtime 字段同源（strategy_registry 进程内缓存）
+    runtime = strategy_registry.get(worker_id)
+    snapshot = runtime.to_dict() if runtime is not None else None
+    return schemas.ApiResponse(
+        code=0,
+        message="success",
+        data={
+            "state": "fixed",
+            "ref_price": stored["ref_price"],
+            **_plan_runtime_progress(stored["plan"], snapshot),
+            "plan": stored["plan"],
+        },
+    )
 
 
 @router.get(
@@ -622,6 +708,7 @@ async def batch_operation(
 async def start_worker(
     worker_id: int,
     background_tasks: BackgroundTasks,
+    body: schemas.WorkerStartRequest | None = None,
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -629,6 +716,8 @@ async def start_worker(
     启动Worker（异步操作）
 
     业务逻辑委托给 WorkerCoreService，状态管理由 WorkerStateManager 负责。
+
+    可选 body：ref_price 为启动参考价，用于锚定并固化价格计划（缺省计划落 pending）。
 
     返回内容：
     - status: "starting" 表示已接收启动请求
@@ -654,7 +743,8 @@ async def start_worker(
     if state and state.status in ("running", "starting"):
         raise WorkerAlreadyRunningException(worker_id)
 
-    result = await worker_core_service.async_start_worker(worker_id)
+    ref_price = body.ref_price if body else None
+    result = await worker_core_service.async_start_worker(worker_id, ref_price=ref_price)
 
     current_state = await worker_state_manager.get_state(worker_id)
     response_data = {
