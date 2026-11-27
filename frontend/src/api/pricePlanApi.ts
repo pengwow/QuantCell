@@ -19,3 +19,18 @@ export const previewPricePlan = (payload: PricePlanPreviewPayload): Promise<Pric
 /** GET /api/v1/workers/{id}/plan —— 固化计划 + 运行态增量 */
 export const getWorkerPlan = (workerId: number): Promise<WorkerPlanResponse> =>
   apiRequest.get(`/workers/${workerId}/plan`);
+
+// 实时最新价（GET /marketdata/price）：价格计划参考价自动预览的取价通道。
+// 注意：apiRequest.get 的第二参就是查询参数本体，不要再包 { params }（见
+// docs/testing/pages/strategy-worker.md 历史雷区）。
+export interface LatestPriceResponse {
+  symbol: string;
+  price: number;
+  ts: string;
+}
+
+export const fetchLatestPrice = (query: {
+  symbol: string;
+  market_type: string;
+  exchange: string;
+}): Promise<LatestPriceResponse> => apiRequest.get('/marketdata/price', query);
