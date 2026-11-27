@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import backtest.async_runner as backtest_async_runner
 import backtest.routes as backtest_routes
 import research.routes as research_routes
 import research.scenarios.strategy as strategy_scenario_module
@@ -113,6 +114,19 @@ def env(monkeypatch, tmp_path):
     # 只摘掉链路最末的引擎执行（_ensure_kline_data 与撮合都在 BacktestService.run_backtest 里）
     monkeypatch.setattr(backtest_routes.backtest_service, "run_backtest", lambda **kwargs: {"status": "success"})
     monkeypatch.setattr(backtest_routes, "notify_backtest_result", lambda *args, **kwargs: None)
+
+    # 线程路径 run_backtest_task（backtest/async_runner.py）会另建 BacktestService() 实例，
+    # 完全绕开上面的单例 stub：不摘掉就会真连数据源补 K 线（每品种数秒重试 × 长窗口），
+    # 把测试拖进 pytest-timeout，且回测失败路径会写 fake db 里不存在的 notifications 表。
+    # 桩类沿用同一 recorder 语义：create_task 记录入参 + 真写任务文件（落 tmp），引擎不跑。
+    class _StubAsyncService:
+        def create_task(self, **kwargs):
+            return recording_create_task(**kwargs)
+
+        def run_backtest(self, **kwargs):
+            return {"status": "success"}
+
+    monkeypatch.setattr(backtest_async_runner, "BacktestService", _StubAsyncService)
 
     try:
         yield db, tmp_path, calls
