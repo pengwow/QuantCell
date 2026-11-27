@@ -5,11 +5,11 @@
  * （workerDetailTabs.test.ts），二是页面组件只留行为、不留数据定义。
  */
 
-// Tab key 类型（6 tab 重构后的合法值）
-export type TabKey = 'overview' | 'trades' | 'decisions' | 'risk' | 'params' | 'logs';
+// Tab key 类型
+export type TabKey = 'overview' | 'trades' | 'decisions' | 'risk' | 'params' | 'plan' | 'logs';
 
-// 合法 tab key
-export const VALID_TABS: TabKey[] = ['overview', 'trades', 'decisions', 'risk', 'params', 'logs'];
+// 合法 tab key（plan：启动固化的价格计划 + 运行态触发进度）
+export const VALID_TABS: TabKey[] = ['overview', 'trades', 'decisions', 'risk', 'params', 'plan', 'logs'];
 
 // 旧 hash -> 新 hash 映射
 // TODO(ux-hash-compat): 这是 URL hash 的 UX 兼容（旧分享链接），并非旧数据协议；

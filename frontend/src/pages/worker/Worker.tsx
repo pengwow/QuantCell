@@ -54,6 +54,7 @@ import { PAGE_SIZE_OPTIONS } from '../../constants/pagination';
 import { workerStatusChip } from '../../components/worker/statusChip';
 import { formatLeverage, formatTimestamp } from '../../utils/format';
 import { formatWorkerRuntime } from './workerRuntime';
+import { PlanSummaryChips } from './WorkerPricePlanTab';
 
 const Worker = () => {
   const { t } = useTranslation();
@@ -1071,6 +1072,9 @@ const Worker = () => {
           {worker.started_at ? kv(t('worker_started_at'), formatTimestamp(worker.started_at)) : null}
           {worker.stopped_at ? kv(t('worker_stopped_at'), formatTimestamp(worker.stopped_at)) : null}
         </div>
+
+        {/* 价格计划摘要：固化状态 + 触发比例（无计划 / 未固化自动隐藏整段） */}
+        <PlanSummaryChips workerId={worker.id} />
 
         {/* 异常行：error_message 只在详情接口有，展开时单查（KPI 卡承诺的「展开行可见」） */}
         {worker.status === 'error' && errorMessage && (

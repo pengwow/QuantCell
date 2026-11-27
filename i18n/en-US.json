@@ -3965,5 +3965,16 @@
   "pricePlan.worker_ref_price_required": "Ref price is required — it will be locked as the plan anchor on start",
   "pricePlan.worker_confirm_title": "Confirm start: {{name}}",
   "pricePlan.create_self_check_title": "Price plan self-check",
-  "pricePlan.create_override_placeholder": "Params override JSON (optional)"
+  "pricePlan.create_override_placeholder": "Params override JSON (optional)",
+  "pricePlan.detail_tab_label": "Price plan",
+  "pricePlan.detail_progress_title": "Runtime progress",
+  "pricePlan.detail_state_fixed": "Fixed",
+  "pricePlan.detail_state_pending": "Pending",
+  "pricePlan.detail_ref_price": "Ref price {{price}}",
+  "pricePlan.detail_triggered_count": "Triggered {{n}}/{{total}} levels",
+  "pricePlan.detail_next_trigger": "Next trigger: {{label}} ({{dist}}% from ref)",
+  "pricePlan.detail_empty_pending": "Plan not fixed yet — fill in the ref price in the start confirm dialog next time to fix it",
+  "pricePlan.chips_state_fixed": "Plan fixed",
+  "pricePlan.chips_state_pending": "Plan pending",
+  "pricePlan.chips_triggered": "Triggered {{n}}/{{total}} ({{p}}%)"
 }

@@ -3965,5 +3965,16 @@
   "pricePlan.worker_ref_price_required": "请先填写参考价——启动后它将作为价格计划锚点固化",
   "pricePlan.worker_confirm_title": "启动确认：{{name}}",
   "pricePlan.create_self_check_title": "价格计划自检",
-  "pricePlan.create_override_placeholder": "参数覆盖 JSON（可空）"
+  "pricePlan.create_override_placeholder": "参数覆盖 JSON（可空）",
+  "pricePlan.detail_tab_label": "价格计划",
+  "pricePlan.detail_progress_title": "运行态进度",
+  "pricePlan.detail_state_fixed": "已固化",
+  "pricePlan.detail_state_pending": "待固化",
+  "pricePlan.detail_ref_price": "参考价 {{price}}",
+  "pricePlan.detail_triggered_count": "已触发档位 {{n}}/{{total}}",
+  "pricePlan.detail_next_trigger": "下一触发：{{label}}（距参考价 {{dist}}%）",
+  "pricePlan.detail_empty_pending": "价格计划尚未固化——下次启动时在确认弹窗填写参考价即可固化",
+  "pricePlan.chips_state_fixed": "计划已固化",
+  "pricePlan.chips_state_pending": "计划待固化",
+  "pricePlan.chips_triggered": "已触发 {{n}}/{{total}}（{{p}}%）"
 }

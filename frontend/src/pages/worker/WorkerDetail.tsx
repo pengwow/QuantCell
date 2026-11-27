@@ -1,7 +1,7 @@
 /**
  * Worker 详情页
  *
- * 6 个 tab 布局（顺序：总览、交易、决策、风控、参数、日志）
+ * 7 个 tab 布局（顺序：总览、交易、决策、风控、参数、价格计划、日志）
  * - URL hash 同步：切换 tab 时更新 hash，刷新页面时根据 hash 恢复
  * - 旧 hash (#performance/#stats) 兼容：自动重定向到 #overview 并 toast 提示
  * - 页面头部「最后更新时间」每 60s 刷新
@@ -39,6 +39,7 @@ import WorkerRiskTab from '../../components/worker/WorkerRiskTab';
 import WorkerLogsTab from '../../components/worker/WorkerLogsTab';
 import WorkerShareModal from '../../components/worker/WorkerShareModal';
 import WorkerEditModal from '../../components/worker/WorkerEditModal';
+import WorkerPricePlanTab from './WorkerPricePlanTab';
 import { LEGACY_HASH_MAP, VALID_TABS, type TabKey } from './workerDetailTabs';
 
 dayjs.extend(relativeTime);
@@ -239,7 +240,7 @@ const WorkerDetail = () => {
   // 头部基础配置展示所需（口径同原 params tab basic_config 卡）
   const workerConfig = currentWorker.config ?? {};
 
-  // 6 个 tab 顺序：总览 → 交易 → 决策 → 风控 → 参数 → 日志
+  // 7 个 tab 顺序：总览 → 交易 → 决策 → 风控 → 参数 → 价格计划 → 日志
   // 所有标签使用 i18n
   const tabItems = [
     {
@@ -279,6 +280,11 @@ const WorkerDetail = () => {
       key: 'params',
       label: t('parameters'),
       children: <WorkerParamsTab worker={currentWorker} />,
+    },
+    {
+      key: 'plan',
+      label: t('pricePlan.detail_tab_label'),
+      children: <WorkerPricePlanTab workerId={currentWorker.id} />,
     },
     {
       key: 'logs',
