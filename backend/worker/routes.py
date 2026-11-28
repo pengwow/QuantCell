@@ -106,6 +106,25 @@ def _position_side_filter(side: str | None) -> str | None:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
+def _strategy_has_price_plan(strategy_name: str | None) -> bool:
+    """详情接口的策略价格计划能力位（strategy registry AST 探测）。
+
+    registry 读不到 / 探测异常一律回退 False（前端详情页据此隐藏价格计划入口），
+    绝不让详情接口因能力探测炸掉。
+    """
+    if not strategy_name:
+        return False
+    try:
+        # 函数内 import：strategy.service 在模块加载期与 workers 包有循环依赖
+        # （同 strategy_manager._persist_worker_price_plan）
+        from strategy.routes import get_strategy_service
+
+        return bool(get_strategy_service().has_price_plan(strategy_name))
+    except Exception as exc:
+        logger.debug(f"has_price_plan 探测失败，回退 False: name={strategy_name}, err={exc}")
+        return False
+
+
 # ==================== WebSocket端点 ====================
 
 
@@ -489,6 +508,7 @@ async def get_worker_state(
     - stopped_at: 停止时间 (ISO 8601)
     - error_message: 错误信息（如果有）
     - updated_at: 状态最后更新时间 (ISO 8601)
+    - strategy_info: 策略基本信息（含 has_price_plan 价格计划能力位）
 
     性能特点：
     - 内存缓存查询状态，数据库查询Worker信息
@@ -523,6 +543,8 @@ async def get_worker_state(
                 "description": worker.strategy.description,
                 "strategy_type": worker.strategy.strategy_type,
                 "version": worker.strategy.version,
+                # 能力位：registry 探测失败回退 False，详情接口不因探测炸掉
+                "has_price_plan": _strategy_has_price_plan(worker.strategy.name),
             }
         result["strategy_info"] = strategy_info
 

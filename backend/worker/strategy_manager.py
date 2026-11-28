@@ -24,6 +24,7 @@ from typing import Any
 
 from axon_quant import worker as axon_worker
 
+from marketdata.service import fetch_latest_price
 from observability import metrics as obs_metrics
 from observability import runtime_health
 from strategy.decision_recording import default_replay_dir, worker_replay_path, wrap_rl_predict
@@ -339,6 +340,50 @@ class StrategyManager:
                 plans[symbol] = None
         crud.save_worker_price_plans(int(worker_id), plans)
 
+    async def _anchor_missing_refs_with_spot(
+        self,
+        worker_id: int,
+        strategy_name: str,
+        ref_prices: dict[str, float | None],
+        exchange: str,
+        market_type: str,
+    ) -> None:
+        """ref 缺失（None/<=0）的标的一律用启动实时价重锚，就地补齐 ref_prices。
+
+        非弹窗启动（重启恢复 / restart / 批量）没有 ref_prices，此前全部落 None
+        会把已固化计划覆写成全 pending；现按「固化用现价」口径以启动时刻行情重锚，
+        旧固化价不保留。弹窗显式传入的 ref 非 None，天然不被本函数触碰。
+        取价失败（网络 / 上市新币 / 不支持的市场）：该标的维持 None →
+        _persist 落 pending 占位，不阻断启动。
+        """
+        # 函数内 import：strategy.service 在模块加载期与 workers 包有循环依赖
+        # （同 _persist_worker_price_plan）
+        from strategy.routes import get_strategy_service
+
+        # 无计划能力的策略跳过重锚（省一次无谓行情回源）；探测本身失败按有能力处理
+        # ——宁可白取一次价，也不能让 None ref 把已固化计划覆写成 pending
+        try:
+            plan_capable = bool(get_strategy_service().has_price_plan(strategy_name))
+        except Exception as exc:
+            logger.warning(f"price plan capability probe failed worker_id={worker_id}: {exc}")
+            plan_capable = True
+        if not plan_capable:
+            return
+
+        # market_type 口径不统一（trading_config 可能给 future、RL 标 swap、
+        # ticker 端点认 futures）：别名归一后取价，仍不认识则 fetch 抛错兜 pending
+        mtype = {"future": "futures", "swap": "futures"}.get(market_type, market_type)
+        for symbol, ref in ref_prices.items():
+            if ref is not None and float(ref) > 0:
+                continue
+            try:
+                quote = await fetch_latest_price(symbol, mtype, exchange)
+                ref_prices[symbol] = float(quote["price"])
+            except Exception as exc:
+                logger.warning(
+                    f"price plan spot re-anchor failed worker_id={worker_id} symbol={symbol} market={mtype} err={exc}"
+                )
+
     async def start_strategy(self, worker_id: int, ref_price: float | dict[str, float | None] | None = None) -> bool:
         """启动策略
 
@@ -559,15 +604,22 @@ class StrategyManager:
         # 价格计划固化（spec §3.3/§4.A）：与启动确认弹窗的 preview 互为镜像——
         # 同一 price_plan 纯函数 + 同一 ref ⇒ 预览必然等于执行计划。
         # ref_price 归一为逐标的入参：dict = 弹窗逐标的采集（多标的分散执行）；
-        # 标量 = 只锚定第一个标的、其余 pending；未提供 = 全部 pending。
-        # 固化失败不阻断启动；落 pending 由 plan API 呈现
+        # 标量 = 只锚定第一个标的、其余现价重锚；未提供（重启恢复 / restart /
+        # 批量）= 全部现价重锚。取价失败该标的落 pending，固化失败不阻断启动。
         if isinstance(ref_price, dict):
-            # ref_prices dict 里缺键的标的按 pending 处理
+            # ref_prices dict 里缺键的标的视为缺失，走下方现价重锚
             ref_prices = {s: ref_price.get(s) for s in symbols}
         elif ref_price is not None and float(ref_price) > 0:
             ref_prices = {symbols[0]: float(ref_price), **{s: None for s in symbols[1:]}}
         else:
             ref_prices = {s: None for s in symbols}
+        # 缺失标的一律用启动实时价重锚（旧固化价不保留）；失败仍落 pending 占位
+        try:
+            await self._anchor_missing_refs_with_spot(
+                worker_id, strategy.name, ref_prices, exchange, trading_config.get("market_type", "spot")
+            )
+        except Exception as exc:
+            logger.warning(f"price plan spot anchor failed worker_id={worker_id} err={exc}")
         try:
             self._persist_worker_price_plan(worker_id, strategy.name, params, ref_prices, by_symbol)
         except Exception as exc:
