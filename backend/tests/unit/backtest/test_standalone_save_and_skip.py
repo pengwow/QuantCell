@@ -54,6 +54,36 @@ def test_save_to_database_writes_nanoseconds(tmp_path, monkeypatch):
         assert row.timestamp == open_ms * 1_000_000
 
 
+def test_save_to_database_accepts_microsecond_open_time(tmp_path, monkeypatch):
+    """data.binance.vision 日归档 open_time 实测为微秒：此前硬编码 *1_000_000
+    当毫秒处理，落库值溢出 SQLite INTEGER 上限（2^63-1）整批失败；
+    修复后按量级推断单位换算纳秒（微秒 × 1e3）"""
+    engine = sqlalchemy.create_engine(f"sqlite:///{tmp_path}/t.db")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(db_module, "init_database_config", lambda: None)
+    monkeypatch.setattr(db_module, "engine", engine, raising=False)
+    monkeypatch.setattr(db_module, "SessionLocal", sessionmaker(bind=engine), raising=False)
+
+    downloader = StandaloneDataDownloader()
+    open_us = int(datetime(2026, 5, 1, 0, 0).timestamp() * 1_000_000)
+    df = pd.DataFrame(
+        {
+            "open_time": [open_us],
+            "open": 1.0,
+            "high": 2.0,
+            "low": 0.5,
+            "close": 1.5,
+            "volume": 10.0,
+        }
+    )
+
+    assert downloader._save_to_database(df, "ETHUSDT", "15m", "spot") is True
+
+    with sessionmaker(bind=engine)() as db:
+        row = db.query(CryptoSpotKline).filter_by(symbol="ETHUSDT", interval="15m").one()
+        assert row.timestamp == open_us * 1_000
+
+
 def test_check_data_exists_reads_source_parquet(tmp_path, monkeypatch):
     monkeypatch.setattr("utils.data_utils.get_source_data_dir", lambda: tmp_path)
     downloader = StandaloneDataDownloader()

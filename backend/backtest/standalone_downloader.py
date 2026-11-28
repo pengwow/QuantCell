@@ -316,17 +316,25 @@ class StandaloneDataDownloader:
                 Model = CryptoSpotKline if crypto_type == "spot" else CryptoFutureKline
 
                 records = []
+                # open_time 单位不保证毫秒（data.binance.vision 日归档实测为微秒）：
+                # 按整列量级推断单位后统一换算纳秒，与 _merge_to_source_parquet 同口径。
+                # 此前硬编码 *1_000_000 把微秒当毫秒，落库值超出 SQLite INTEGER
+                # 上限（2^63-1）直接报 "Python int too large to convert to SQLite INTEGER"
+                scale = _infer_ts_scale(float(df["open_time"].max()))
+                ns_multiplier = 1_000_000_000 // scale
                 for _, row in df.iterrows():
-                    timestamp_ms = int(row["open_time"])
-                    unique_kline = f"{symbol}_{interval}_{timestamp_ms}"
+                    timestamp_ns = int(row["open_time"]) * ns_multiplier
+                    # 幂等 key 采用换算后的纳秒值：同根 K 线同单位重跑 key 不变，
+                    # on_conflict_do_nothing 才能生效（毫秒时代的历史旧 key 不同单位，不迁移）
+                    unique_kline = f"{symbol}_{interval}_{timestamp_ns}"
 
                     records.append(
                         {
                             "symbol": symbol,
                             "interval": interval,
-                            # P2-14 起 timestamp 列为 BIGINT 纳秒整型；open_time 是毫秒，
-                            # 落库统一转纳秒（此前写 str(毫秒) 造成口径错配、按时间查询必空）
-                            "timestamp": timestamp_ms * 1_000_000,
+                            # P2-14 起 timestamp 列为 BIGINT 纳秒整型；open_time 单位不定
+                            # （实测微秒），落库统一换算纳秒保证口径一致
+                            "timestamp": timestamp_ns,
                             "open": decimal_or_zero(row["open"]),
                             "high": decimal_or_zero(row["high"]),
                             "low": decimal_or_zero(row["low"]),
