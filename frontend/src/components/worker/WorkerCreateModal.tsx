@@ -526,61 +526,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           />
         </Form.Item>
 
-        {/* 策略参数（schema 来自 /strategy/list 的 params；初值 = default，可改可清） */}
-        {strategyParamDefs.length > 0 && (
-          <>
-            <Divider>
-              <Space>
-                {t('strategy_params')}
-                {loadingParams && <Spin size="small" />}
-              </Space>
-            </Divider>
-            <Card
-              size="small"
-              variant="borderless"
-              className="qc-card"
-              style={{ background: 'var(--qc-surface-muted)', boxShadow: 'none' }}
-            >
-              <Flex vertical gap="small">
-                <Row gutter={[12, 12]}>
-                  {strategyParamDefs.map((param) => (
-                    <Col span={12} key={param.name}>
-                      <Form.Item
-                        label={
-                          <Space>
-                            <span>{param.name}</span>
-                            {param.description && (
-                              <Tooltip title={param.description}>
-                                <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
-                              </Tooltip>
-                            )}
-                          </Space>
-                        }
-                      >
-                        {renderStrategyParamInput(param, t, strategyParams[param.name], (v) =>
-                          setStrategyParams((prev) => ({ ...prev, [param.name]: v })),
-                        )}
-                      </Form.Item>
-                    </Col>
-                  ))}
-                </Row>
-                {/* 按标的参数覆盖入口（spec 2026-11-28）：多标的时每个标的旁「覆盖参数」Popover */}
-                <SymbolParamOverrides
-                  schema={strategyParamDefs}
-                  symbols={previewSymbols}
-                  value={paramsBySymbol}
-                  onChange={setParamsBySymbol}
-                  baseValues={previewParams}
-                />
-                {/* RL 多标的边界：本轮只跑首标的，UI 显式提示（spec D4） */}
-                {selectedStrategyInfo?.strategy_type === 'rl' && previewSymbols.length > 1 && (
-                  <Alert type="info" showIcon message={t('pricePlan.rl_multi_symbol_hint')} />
-                )}
-              </Flex>
-            </Card>
-          </>
-        )}
-
         {/* 交易配置 */}
         <Divider>{t('trading_config')}</Divider>
 
@@ -696,6 +641,61 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             </Form.Item>
           </Col>
         </Row>
+
+        {/* 策略参数（schema 来自 /strategy/list 的 params；初值 = default，可改可清；覆盖参数依赖已选标的，故置于交易配置之后） */}
+        {strategyParamDefs.length > 0 && (
+          <>
+            <Divider>
+              <Space>
+                {t('strategy_params')}
+                {loadingParams && <Spin size="small" />}
+              </Space>
+            </Divider>
+            <Card
+              size="small"
+              variant="borderless"
+              className="qc-card"
+              style={{ background: 'var(--qc-surface-muted)', boxShadow: 'none' }}
+            >
+              <Flex vertical gap="small">
+                <Row gutter={[12, 12]}>
+                  {strategyParamDefs.map((param) => (
+                    <Col span={12} key={param.name}>
+                      <Form.Item
+                        label={
+                          <Space>
+                            <span>{param.name}</span>
+                            {param.description && (
+                              <Tooltip title={param.description}>
+                                <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
+                              </Tooltip>
+                            )}
+                          </Space>
+                        }
+                      >
+                        {renderStrategyParamInput(param, t, strategyParams[param.name], (v) =>
+                          setStrategyParams((prev) => ({ ...prev, [param.name]: v })),
+                        )}
+                      </Form.Item>
+                    </Col>
+                  ))}
+                </Row>
+                {/* 按标的参数覆盖入口（spec 2026-11-28）：多标的时每个标的旁「覆盖参数」Popover */}
+                <SymbolParamOverrides
+                  schema={strategyParamDefs}
+                  symbols={previewSymbols}
+                  value={paramsBySymbol}
+                  onChange={setParamsBySymbol}
+                  baseValues={previewParams}
+                />
+                {/* RL 多标的边界：本轮只跑首标的，UI 显式提示（spec D4） */}
+                {selectedStrategyInfo?.strategy_type === 'rl' && previewSymbols.length > 1 && (
+                  <Alert type="info" showIcon message={t('pricePlan.rl_multi_symbol_hint')} />
+                )}
+              </Flex>
+            </Card>
+          </>
+        )}
 
         {/* 资金配置 */}
         <Divider>{t('capital_config')}</Divider>

@@ -750,59 +750,6 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
           />
         </Form.Item>
 
-        {/* 策略参数 */}
-        {strategyParams.length > 0 && (
-          <>
-            <Divider>
-              <Space>
-                {t('strategy_params')}
-                {loadingParams && <Spin size="small" />}
-              </Space>
-            </Divider>
-            <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
-              <Flex vertical gap="small">
-                <Row gutter={[12, 12]}>
-                  {strategyParams.map((param) => (
-                    <Col span={12} key={param.param_name}>
-                      <Form.Item
-                        name={`param_${param.param_name}`}
-                        label={
-                          <Space>
-                            <span>{param.param_name}</span>
-                            {param.description && (
-                              <Tooltip title={param.description}>
-                                <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
-                              </Tooltip>
-                            )}
-                          </Space>
-                        }
-                        tooltip={param.description}
-                        rules={param.required ? [{ required: true, message: t('worker_please_input_param', { name: param.param_name }) }] : []}
-                      >
-                        {renderParamInput(param, t)}
-                      </Form.Item>
-                    </Col>
-                  ))}
-                </Row>
-                {/* 按标的参数覆盖入口（spec 2026-11-28）：保存走 param-overrides 端点 */}
-                <SymbolParamOverrides
-                  schema={strategyParams.map((p) => ({
-                    name: p.param_name,
-                    type: p.param_type,
-                    default: p.default_value ?? p.param_value,
-                    description: p.description ?? '',
-                    required: !!p.required,
-                  }))}
-                  symbols={symbols}
-                  value={paramsBySymbol}
-                  onChange={setParamsBySymbol}
-                  baseValues={baseValues}
-                />
-              </Flex>
-            </Card>
-          </>
-        )}
-
         {/* 交易配置 */}
         <Divider>{t('trading_config')}</Divider>
 
@@ -918,6 +865,59 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             </Form.Item>
           </Col>
         </Row>
+
+        {/* 策略参数（覆盖参数依赖已选标的，故置于交易配置之后） */}
+        {strategyParams.length > 0 && (
+          <>
+            <Divider>
+              <Space>
+                {t('strategy_params')}
+                {loadingParams && <Spin size="small" />}
+              </Space>
+            </Divider>
+            <Card size="small" variant="borderless" className="qc-card" style={{ background: 'var(--qc-surface-muted)', marginBottom: 16, boxShadow: 'none' }}>
+              <Flex vertical gap="small">
+                <Row gutter={[12, 12]}>
+                  {strategyParams.map((param) => (
+                    <Col span={12} key={param.param_name}>
+                      <Form.Item
+                        name={`param_${param.param_name}`}
+                        label={
+                          <Space>
+                            <span>{param.param_name}</span>
+                            {param.description && (
+                              <Tooltip title={param.description}>
+                                <QuestionCircleOutlined style={{ color: 'var(--qc-text-tertiary)' }} />
+                              </Tooltip>
+                            )}
+                          </Space>
+                        }
+                        tooltip={param.description}
+                        rules={param.required ? [{ required: true, message: t('worker_please_input_param', { name: param.param_name }) }] : []}
+                      >
+                        {renderParamInput(param, t)}
+                      </Form.Item>
+                    </Col>
+                  ))}
+                </Row>
+                {/* 按标的参数覆盖入口（spec 2026-11-28）：保存走 param-overrides 端点 */}
+                <SymbolParamOverrides
+                  schema={strategyParams.map((p) => ({
+                    name: p.param_name,
+                    type: p.param_type,
+                    default: p.default_value ?? p.param_value,
+                    description: p.description ?? '',
+                    required: !!p.required,
+                  }))}
+                  symbols={symbols}
+                  value={paramsBySymbol}
+                  onChange={setParamsBySymbol}
+                  baseValues={baseValues}
+                />
+              </Flex>
+            </Card>
+          </>
+        )}
 
         {/* 资金配置 */}
         <Divider>{t('capital_config')}</Divider>
