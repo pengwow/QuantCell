@@ -51,6 +51,8 @@
 | W35 | worker 详情页切「价格计划」tab | 顶部标的 chips 来自 `resp.symbols`（按存储顺序，pending 标的追加「（未固化）」）；切 chip 以 `?symbol=` 读对应固化快照（只换数据源，不重算）。fixed：状态 Tag + 参考价 + 「已触发 x / 共 N 个档位」 + 下一触发档位文案 + **真实K线图**（周期条可切；档位虚线、已触发实线加粗、参考价强调线、右侧价签）+ 明细联动；pending 标的显示 Empty 引导（chips 常驻）；`GET /api/v1/workers/{id}/plan` 返回 200 且响应含 `symbols: [{symbol, state}]`（v1 旧单份 worker 长度为 1） | L1 |
 | W36 | 列表页展开任一有计划的 worker 行 | kv 网格下方出现「价格计划」摘要 chips（已触发 x/y，百分比，取缺省标的快照、不随详情页 chip 联动）；plan 接口失败时该段静默隐藏（无 console error，不阻断展开功能） | L2 |
 | W37 | 后端 API 探针（无前端入口）：`GET /api/v1/marketdata/klines?symbol=BTCUSDT&interval=15m&limit=120` | 200，`data` 为 `[{ts,open,high,low,close,volume}]` 时间升序、ts 毫秒原样；`interval=2m` → 422（invalid_interval）；`limit=999` → 422（Pydantic `le=500` 在路由边界拒绝，不静默截断；服务层 `fetch_recent_klines` 内部仍 clamp None→120 / >500→500 供非 HTTP 调用方）；`market_type=futures` 走 fapi 域名且响应同构；`exchange=okx` → 400（unsupported_exchange）；断网/回源失败 → 502（exchange_unreachable，不降级） | L1 |
+| W38 | 详情页打开**无 price_plan 能力**策略的 worker（策略文档未实现 price_plan 协议，`strategy_info.has_price_plan === false`） | 详情页 tab 栏**无「价格计划」项**（参数后直接是日志，共 6 个 tab）；当前停在别的 tab 时无扰动；仅当显式 `false` 才隐藏——旧后端/registry 探测失败等字段缺失场景 tab 照常显示，不误隐藏 | L2 |
+| W39 | 有 price_plan 能力策略（马丁/网格类）的 worker 详情页 | 「价格计划」tab 仍在（显隐之外行为不变）；参考价格取**自动固化**兜底：启动时未手填参考价的标的按启动那一刻现价固化，个别标的取价失败该标的固化落 pending（详情页该标的 chip 带「（未固化）」） | L1 |
 
 ## Resume 自动恢复（以交易所为准）
 
