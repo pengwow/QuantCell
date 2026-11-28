@@ -38,8 +38,15 @@ def get_data_dir() -> Path:
 
 
 def get_source_data_dir() -> Path:
-    """返回 backend/data/source 目录的绝对路径（存储原始下载数据）"""
-    return get_data_dir() / "source"
+    """返回 source 数据根目录。
+
+    开发态 = backend/data/source；桌面/冻结环境落 QUANTCELL_DATA_DIR/data/source
+    （与 collector/services/data_service::SOURCE_DATA_DIR 同源，后者也是
+    get_persistent_dir("data/source", ...)——两条入口必须在桌面态回到同一物理目录）。
+    """
+    from utils.paths import get_persistent_dir
+
+    return get_persistent_dir("data/source", get_backend_root() / "data" / "source")
 
 
 def get_symbols_from_data_pool(pool_name: str) -> list[str]:

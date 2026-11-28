@@ -67,7 +67,6 @@ class StandaloneDownloadProgress:
         message: str | None = None,
         current_date: str | None = None,
     ):
-        """更新进度信息"""
         if status:
             self.status = status
         if progress is not None:
@@ -87,13 +86,11 @@ class StandaloneDataDownloader:
         self.temp_dir = Path(__file__).parent.parent / "data" / "temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
-        # 延迟初始化下载器，避免在初始化时调用API获取交易对列表
         self._spot_downloader = None
         self._futures_downloader = None
 
     @property
     def spot_downloader(self):
-        """延迟初始化现货下载器"""
         if self._spot_downloader is None:
             self._spot_downloader = BinanceDownloader(
                 save_dir=self.temp_dir,
@@ -104,7 +101,6 @@ class StandaloneDataDownloader:
 
     @property
     def futures_downloader(self):
-        """延迟初始化合约下载器"""
         if self._futures_downloader is None:
             self._futures_downloader = BinanceDownloader(
                 save_dir=self.temp_dir,
@@ -126,20 +122,6 @@ class StandaloneDataDownloader:
         crypto_type: str = "spot",
         progress_callback: Callable[[StandaloneDownloadProgress], None] | None = None,
     ) -> bool:
-        """
-        直接下载数据到数据库与 source parquet
-
-        参数：
-            symbol: 交易对（如 BTCUSDT）
-            interval: 时间周期（如 15m, 1h）
-            start_time: 开始时间
-            end_time: 结束时间
-            crypto_type: 交易类型（spot/futures）
-            progress_callback: 进度回调函数
-
-        返回：
-            bool: 是否下载成功
-        """
         normalized_symbol = symbol.replace("/", "")
         downloader = self.spot_downloader if crypto_type == "spot" else self.futures_downloader
 
@@ -183,10 +165,7 @@ class StandaloneDataDownloader:
                     df = await downloader.get_daily_klines(normalized_symbol, interval, date)
 
                     if df is not None and not df.empty:
-                        # 落库为副本口径
                         self._save_to_database(df, normalized_symbol, interval, crypto_type)
-
-                        # 合并进回测实际读取的 source Parquet（检查/回测同源闭环）
                         self._merge_to_source_parquet(df, normalized_symbol, interval, crypto_type)
 
                         success_count += 1
@@ -243,7 +222,6 @@ class StandaloneDataDownloader:
             if df.empty:
                 return False
 
-            # 按文件实际单位换算日期边界（存量文件 ns/us 不一，由量级推断）
             scale = _infer_ts_scale(float(df["timestamp"].max()))
             date_dt = datetime.strptime(date, "%Y-%m-%d")
             start_ts = int(date_dt.timestamp() * scale)
@@ -266,16 +244,10 @@ class StandaloneDataDownloader:
 
         这是"自动下载→回测可用"闭环的落盘端：完整性检查与回测加载读的都是
         这个文件，只写 DB 不写它就会出现"下载完成仍报不完整"。
-
-        只保留回测需要的 7 列；同时间戳以新行为准（append_to_parquet 的
-        keep="last"），老文件多出的辅助列在新行上是 NaN，对 OHLCV 驱动的
-        回测无实质影响。
         """
         try:
             merge_df = df[["open_time", "open", "high", "low", "close", "volume"]].copy()
 
-            # open_time 单位不定（Binance K 线为毫秒），统一换算为纳秒命名 timestamp，
-            # 与存量 source 文件的纳秒口径对齐（混单位会让排序/过滤把新数据漂移到过去）
             open_time = merge_df.pop("open_time").astype("int64")
             scale = _infer_ts_scale(float(open_time.max()))
             merge_df["timestamp"] = open_time * (1_000_000_000 // scale)
@@ -316,24 +288,20 @@ class StandaloneDataDownloader:
                 Model = CryptoSpotKline if crypto_type == "spot" else CryptoFutureKline
 
                 records = []
-                # open_time 单位不保证毫秒（data.binance.vision 日归档实测为微秒）：
-                # 按整列量级推断单位后统一换算纳秒，与 _merge_to_source_parquet 同口径。
-                # 此前硬编码 *1_000_000 把微秒当毫秒，落库值超出 SQLite INTEGER
-                # 上限（2^63-1）直接报 "Python int too large to convert to SQLite INTEGER"
-                scale = _infer_ts_scale(float(df["open_time"].max()))
-                ns_multiplier = 1_000_000_000 // scale
                 for _, row in df.iterrows():
-                    timestamp_ns = int(row["open_time"]) * ns_multiplier
-                    # 幂等 key 采用换算后的纳秒值：同根 K 线同单位重跑 key 不变，
-                    # on_conflict_do_nothing 才能生效（毫秒时代的历史旧 key 不同单位，不迁移）
-                    unique_kline = f"{symbol}_{interval}_{timestamp_ns}"
+                    timestamp_ms = int(row["open_time"])
+                    unique_kline = f"{symbol}_{interval}_{timestamp_ms}"
+
+                    # open_time 单位不定（Binance REST 毫秒，binance.vision 日归档微秒），
+                    # 乘固定系数会溢出 BIGINT 上限，按量级推断后再换算纳秒
+                    row_ns = int(row["open_time"])
+                    scale = _infer_ts_scale(float(row_ns))
+                    timestamp_ns = row_ns * (1_000_000_000 // scale)
 
                     records.append(
                         {
                             "symbol": symbol,
                             "interval": interval,
-                            # P2-14 起 timestamp 列为 BIGINT 纳秒整型；open_time 单位不定
-                            # （实测微秒），落库统一换算纳秒保证口径一致
                             "timestamp": timestamp_ns,
                             "open": decimal_or_zero(row["open"]),
                             "high": decimal_or_zero(row["high"]),
