@@ -132,3 +132,55 @@ def best_effort_cancel_open_orders(trade_sync: Any, wlog: Any) -> None:
         except Exception as e:
             wlog.warning(f"自动恢复单笔撤单失败（继续）: symbol={symbol}, order_id={order.get('id')}, error={e}")
     wlog.info(f"自动恢复撤单完成: symbol={symbol}, 处理挂单数={len(orders)}")
+
+
+def _load_reconcile_report(journal_path: str | None) -> dict[str, Any] | None:
+    """守卫拒绝时 Rust 已把报告落盘到 journal 旁（worker_N.reconcile.json）；
+    归档前读一份进审计。读不到（落盘失败/路径异常）记 None，不阻断处置。"""
+    if not journal_path:
+        return None
+    try:
+        report_path = Path(journal_path).with_suffix(".reconcile.json")
+        return json.loads(report_path.read_text(encoding="utf-8"))
+    except OSError, json.JSONDecodeError:
+        return None
+
+
+def try_auto_recover(
+    worker_id: int,
+    error_message: str,
+    trade_sync: Any,
+    wlog: Any,
+    *,
+    archive_fn: Callable[[int], list[dict]],
+    journal_path: str | None = None,
+    now: float | None = None,
+) -> bool:
+    """守卫拒绝后的自动处置编排。True = 已归档，调用方应立即 driver.start 重启。
+
+    顺序即契约（spec §处置序列）：判定 → 总闸 → 撤单 → 归档 → 审计。
+    返回 False 的所有情况（非守卫错误/开关关/止损命中/归档失败）都已 wlog
+    说明，调用方走原有失败路径落 worker error 状态。
+    """
+    if not is_resume_guard_reject(error_message):
+        return False
+    ok, reason = should_auto_recover(worker_id, now=now)
+    if not ok:
+        wlog.warning(f"resume 对账不一致未自动恢复: worker_id={worker_id}, 原因=({reason})")
+        return False
+    report = _load_reconcile_report(journal_path)
+    report_path = Path(journal_path).with_suffix(".reconcile.json") if journal_path else None
+    wlog.warning(
+        f"resume 对账不一致（可自动恢复），开始处置: worker_id={worker_id}, "
+        f"报告路径={report_path or '未落盘'}, "
+        f"reconcile_report={json.dumps(report, ensure_ascii=False, default=str)[:500] if report else '无'}"
+    )
+    best_effort_cancel_open_orders(trade_sync, wlog)
+    try:
+        moved = archive_fn(worker_id)
+    except Exception as e:
+        wlog.error(f"journal 归档失败，放弃自动恢复（保留现场人工处置）: worker_id={worker_id}, error={e}")
+        return False
+    wlog.info(f"journal 已归档: worker_id={worker_id}, files={moved}")
+    record_recovery(worker_id, report)
+    return True

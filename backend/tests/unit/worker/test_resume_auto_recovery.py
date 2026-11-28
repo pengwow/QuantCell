@@ -160,3 +160,78 @@ def test_cancel_swallows_per_order_failure():
     wlog = MagicMock()
     rar.best_effort_cancel_open_orders(ts, wlog)  # 不抛即通过
     wlog.warning.assert_called()
+
+
+# ---------- 处置编排 ----------
+
+
+def test_try_auto_recover_rejects_non_guard_error():
+    calls: list[str] = []
+    ok = rar.try_auto_recover(
+        920, "journal 重演失败: x", None, MagicMock(), archive_fn=lambda wid: calls.append("archive") or []
+    )
+    assert ok is False
+    assert calls == []
+
+
+def test_try_auto_recover_honors_gate(monkeypatch):
+    monkeypatch.setattr("utils.config_manager.get_flag", lambda key, default: False)
+    ok = rar.try_auto_recover(
+        921,
+        rar.RESUME_GUARD_PREFIX + "，xxxx",
+        None,
+        MagicMock(),
+        archive_fn=lambda wid: [],
+    )
+    assert ok is False
+
+
+def test_try_auto_recover_runs_cancel_before_archive_and_records(data_dir):
+    calls: list[str] = []
+    ts, ccxt = _fake_trade_sync(open_orders=[{"id": "9"}])
+
+    def _cancel(order_id, symbol):
+        calls.append("cancel")
+
+    ccxt.cancel_order.side_effect = _cancel
+    wlog = MagicMock()
+
+    def _archive(worker_id: int) -> list[dict]:
+        calls.append("archive")
+        return [{"from": "a.jsonl", "to": "archive/a.jsonl"}]
+
+    ok = rar.try_auto_recover(922, rar.RESUME_GUARD_PREFIX + "：持仓不一致", ts, wlog, archive_fn=_archive)
+    assert ok is True
+    assert calls == ["cancel", "archive"]  # 顺序契约：先撤单后归档
+    row = json.loads(rar.recovery_log_path(922).read_text(encoding="utf-8").strip())
+    assert row["verdict"] == "adopted"
+    assert row["reconcile_report"] is None  # 未提供 journal_path
+
+
+def test_try_auto_recover_records_reconcile_report(data_dir, tmp_path):
+    journal = tmp_path / "worker_923.jsonl"
+    journal.write_text("{}", encoding="utf-8")
+    journal.with_suffix(".reconcile.json").write_text('{"position_breaks": 1}', encoding="utf-8")
+    ok = rar.try_auto_recover(
+        923,
+        rar.RESUME_GUARD_PREFIX + "：x",
+        None,
+        MagicMock(),
+        archive_fn=lambda wid: [],
+        journal_path=str(journal),
+    )
+    assert ok is True
+    row = json.loads(rar.recovery_log_path(923).read_text(encoding="utf-8").strip())
+    assert row["reconcile_report"] == {"position_breaks": 1}
+
+
+def test_try_auto_recover_aborts_when_archive_fails(data_dir):
+    wlog = MagicMock()
+
+    def _boom(worker_id: int) -> list[dict]:
+        raise RuntimeError("mv 失败")
+
+    ok = rar.try_auto_recover(924, rar.RESUME_GUARD_PREFIX + "：x", None, wlog, archive_fn=_boom)
+    assert ok is False
+    assert not rar.recovery_log_path(924).exists()  # 归档失败不记审计
+    wlog.error.assert_called()
