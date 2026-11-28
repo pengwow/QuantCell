@@ -99,6 +99,9 @@ def append_to_parquet(df: pd.DataFrame, file_path: Path, compression: str = "sna
 
     注意：会自动检测历史文件中的时间列（如 ``open_time`` / ``transact_time``）并
     归一化为 ``timestamp``，避免新老数据合并时出现 ``timestamp_x/timestamp_y`` 歧义。
+    新老数据时间戳单位不一致时（如 ms 行追加进 us 文件），新数据会先
+    缩放到文件既有单位——单位混列会让读端按最大量级推断整列单位出错
+    （见 factor/engine._timestamps_to_datetime）。
     """
     try:
         if df is None or df.empty:
@@ -119,6 +122,12 @@ def append_to_parquet(df: pd.DataFrame, file_path: Path, compression: str = "sna
                 # 历史数据也归一化时间列
                 existing_df = normalize_timestamp_column(existing_df, on_missing="warn")
 
+                # 新数据单位对齐到文件既有单位，防止单位混列
+                if "timestamp" in df.columns and "timestamp" in existing_df.columns:
+                    target_unit = _infer_timestamp_unit(existing_df["timestamp"])
+                    if target_unit:
+                        df = _align_timestamp_unit(df, target_unit)
+
                 # 合并数据
                 combined_df = pd.concat([existing_df, df], ignore_index=True)
 
@@ -136,6 +145,58 @@ def append_to_parquet(df: pd.DataFrame, file_path: Path, compression: str = "sna
     except Exception as e:
         logger.error(f"追加数据到 Parquet 失败: {e}")
         return False
+
+
+# 各精度单位相对秒的倍数（ns 值 = ts × ratio）
+_TIMESTAMP_UNIT_RATIOS = {"s": 1, "ms": 10**3, "us": 10**6, "ns": 10**9}
+
+
+def _infer_timestamp_unit(values: pd.Series) -> str | None:
+    """按列内最大数值量级推断时间戳单位（s/ms/us/ns）。
+
+    与读端（factor/engine._timestamps_to_datetime 等）的量级推断口径一致：
+    ≥1e17→ns、≥1e14→us、≥1e11→ms、>0→s。用 max 而非首值，
+    避免文件头部存在异单位残留行时误判。无法判定（空列/全 NaN）返回 None。
+    """
+    if values is None or len(values) == 0:
+        return None
+    try:
+        vmax = float(pd.to_numeric(values, errors="coerce").max())
+    except TypeError, ValueError:
+        return None
+    if vmax != vmax or vmax <= 0:  # all-NaN 或非正数
+        return None
+    if vmax >= 1e17:
+        return "ns"
+    if vmax >= 1e14:
+        return "us"
+    if vmax >= 1e11:
+        return "ms"
+    return "s"
+
+
+def _align_timestamp_unit(df: pd.DataFrame, target_unit: str) -> pd.DataFrame:
+    """把 df 的 timestamp 列缩放到 target_unit（整数运算，防 float64 精度丢失）。
+
+    源/目标倍率直接换算，不经 ns 中转——us×1e6 构造 ns 会超出 int64 范围。
+    """
+    ts = pd.to_numeric(df["timestamp"], errors="coerce")
+    src_unit = _infer_timestamp_unit(ts)
+    if src_unit is None or src_unit == target_unit:
+        return df
+
+    src_ratio, dst_ratio = _TIMESTAMP_UNIT_RATIOS[src_unit], _TIMESTAMP_UNIT_RATIOS[target_unit]
+    out = df.copy()
+    valid = ts.notna()
+    if src_ratio > dst_ratio:  # src 更细（如 ns→us）：整除向粗对齐
+        aligned = ts[valid].astype("int64") // (src_ratio // dst_ratio)
+    else:  # src 更粗（如 s→ms）：乘法向细对齐
+        aligned = ts[valid].astype("int64") * (dst_ratio // src_ratio)
+    ts = ts.copy()
+    ts[valid] = aligned
+    out["timestamp"] = ts
+    logger.info(f"追加数据时间戳单位已对齐: {src_unit} → {target_unit} ({int(valid.sum())} 行)")
+    return out
 
 
 def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:

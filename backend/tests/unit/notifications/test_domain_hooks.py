@@ -7,6 +7,7 @@ inspect.getsource 接线检查确保挂钩真的被终态收口函数调用。
 """
 
 import inspect
+import re
 
 from backtest import routes as backtest_routes
 from collector.utils import task_manager
@@ -71,10 +72,12 @@ class TestBacktestHook:
         ]
 
     def test_wired_into_run_backtest_async(self):
-        # run_backtest_async 是闭包拿不到引用，对整个 routes 源码做接线检查
+        # run_backtest_async 是闭包拿不到引用，对整个 routes 源码做接线检查。
+        # 用正则而非字面缩进匹配：源码缩进会随后续重构/格式化变化，
+        # 断言语义只是「notify_task_event 以 'backtest' 为首个实参被调用」
         src = inspect.getsource(backtest_routes)
         assert "notify_backtest_result(task_id, result" in src
-        assert 'notify_task_event(\n                        "backtest"' in src
+        assert re.search(r'notify_task_event\(\s*"backtest"', src)
 
 
 # ---------- research ----------

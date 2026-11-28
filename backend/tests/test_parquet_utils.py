@@ -178,6 +178,56 @@ class TestAppendToParquet:
         loaded_df = load_from_parquet(file_path)
         assert len(loaded_df) == 4
 
+    def test_append_aligns_us_file_receiving_ms_data(self, tmp_path):
+        """追加时新数据时间戳单位必须对齐到目标文件自身单位（ms 数据 → us 文件）
+
+        回归背景：2024-01 回填曾以纳秒单位向微秒单位的历史文件追加 48 行，
+        读端（factor/engine 按列最大量级推断单位）把整列按纳秒解析，
+        微秒主体全部落在 1970 年，factor analyze 序列日期断言失败。
+        """
+        from utils.parquet_utils import append_to_parquet, load_from_parquet
+
+        file_path = tmp_path / "unit_align.parquet"
+
+        # 历史文件是微秒单位（2026-06-30 起，1h 间隔）
+        us_df = pd.DataFrame(
+            {
+                "timestamp": [1782864000000000, 1782867600000000],
+                "close": [1.0, 2.0],
+            }
+        )
+        append_to_parquet(us_df, file_path)
+
+        # 追加毫秒单位的新数据（历史末根 +1h，同一时刻的 ms 表示）
+        ms_df = pd.DataFrame({"timestamp": [1782871200000], "close": [3.0]})
+        append_to_parquet(ms_df, file_path)
+
+        loaded_df = load_from_parquet(file_path)
+        assert len(loaded_df) == 3
+        # 整列保持微秒单位，无混合量级
+        assert loaded_df["timestamp"].max() < 10**17
+        # 追加行语义时间不变，已换算为微秒
+        assert int(loaded_df["timestamp"].max()) == 1782871200000000
+
+    def test_append_aligns_ms_file_receiving_us_data(self, tmp_path):
+        """反向：us 新数据追加进 ms 文件，对齐到 ms"""
+        from utils.parquet_utils import append_to_parquet, load_from_parquet
+
+        file_path = tmp_path / "unit_align_ms.parquet"
+
+        ms_df = pd.DataFrame({"timestamp": [1782871200000], "close": [1.0]})
+        append_to_parquet(ms_df, file_path)
+
+        us_df = pd.DataFrame({"timestamp": [1782864000000000], "close": [0.5]})
+        append_to_parquet(us_df, file_path)
+
+        loaded_df = load_from_parquet(file_path)
+        assert len(loaded_df) == 2
+        # 整列保持 ms 单位（<1e14 且分属 2 个相距 1h 的整分值）
+        assert loaded_df["timestamp"].max() < 10**14
+        assert int(loaded_df["timestamp"].min()) == 1782864000000
+        assert int(loaded_df["timestamp"].max()) == 1782871200000
+
 
 class TestConvertCsvToParquet:
     """测试 CSV 到 Parquet 的转换"""

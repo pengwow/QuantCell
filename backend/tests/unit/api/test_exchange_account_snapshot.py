@@ -125,10 +125,16 @@ def test_snapshot_cache_hit_and_refresh(monkeypatch):
 
 
 def test_snapshot_empty_state_not_cached(monkeypatch):
-    """paper 空态响应即时、不写缓存"""
+    """paper 空态响应即时、不写缓存
+
+    SystemConfigBusiness 在 exchanges.py 内为函数内延迟导入（防循环依赖），
+    monkeypatch 必须打在导入源 settings.models 上，每次 import 都能拿到假类。
+    """
+    import settings.models as settings_models
+
     mod._SNAPSHOT_CACHE.clear()
     monkeypatch.setattr(
-        mod,
+        settings_models,
         "SystemConfigBusiness",
         type(
             "SB",
