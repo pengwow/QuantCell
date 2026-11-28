@@ -16,6 +16,7 @@ import pytest
 from fastapi import HTTPException
 
 from backtest.backtest_loop import BacktestLoop
+from backtest.engine_service import EventDrivenBacktestService
 from backtest.routes import run_backtest
 from backtest.schemas import BacktestConfig, BacktestRunRequest, StrategyConfig
 from strategy.base import StrategyConfig as RuntimeStrategyConfig
@@ -59,6 +60,13 @@ def _kline(n: int = 60) -> pd.DataFrame:
 def _mock_llm(_prompt: str) -> str:
     """固定响应，保证两次运行唯一变量只有 provider 的录制/回放。"""
     return '{"action":"Buy","confidence":0.8,"reasoning":"mock"}'
+
+
+class _ReplayMissStrategy(LLMSignalStrategy):
+    """首根 bar 即抛 ReplayMissError，模拟回放窗错配（见 test_kernel_path_*）。"""
+
+    def on_bar(self, bar, ctx=None):
+        raise ReplayMissError("ReplayMissError: 未命中 fingerprint（测试注入）")
 
 
 def test_recording_writes_fingerprint_and_response(tmp_path: Path) -> None:
@@ -177,3 +185,29 @@ def test_llm_signal_backtest_replay_is_reproducible(tmp_path: Path, monkeypatch)
     assert second.final_nav == first.final_nav
     assert second.fills == first.fills
     assert len(second.trade_records) == len(first.trade_records)
+
+
+def test_kernel_path_replay_miss_fails_backtest() -> None:
+    """kernel 默认路径：回放 miss 必须让整场回测抛错，不得降级 Hold 出 0 交易。
+
+    背景（2026-11-28 踩坑）：内核 StrategyHost 对策略 decide 异常一律按 Hold
+    容错，ReplayMissError 被静默吞掉 → 任务 completed 但 0 交易。修复后引擎
+    把 ReplayMissError 归类为契约性失败上抛，本用例真跑引擎，.so 过期时最先
+    回退成静默 completed，随即报警。
+    """
+    n = 20
+    closes = [100.0 + float(i) for i in range(n)]
+    data = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes],
+            "close": closes,
+            "volume": [1000.0] * n,
+        },
+        index=pd.date_range("2024-07-01", periods=n, freq="1h"),
+    )
+    strategy = _ReplayMissStrategy(RuntimeStrategyConfig(name="llm_signal", params={"mode": "llm"}))
+
+    with pytest.raises(RuntimeError, match="ReplayMissError"):
+        EventDrivenBacktestService(data_provider=None)._run_rust_single(strategy, data, "BTCUSDT", 100_000.0)
