@@ -153,6 +153,16 @@ const WorkerDetail = () => {
   // 找到当前查看的 worker
   const currentWorker = workers.find((w) => w.id === parseInt(workerId || '0')) || null;
 
+  // 能力回退：策略无 price_plan（strategy_info.has_price_plan === false）而当前停在 plan
+  // tab 时，回退到默认 tab。照 handleTabChange 的 hash 口径（replaceState），避免 URL
+  // 残留该 worker 已不存在的 #plan。字段缺失（旧后端/registry 探测失败）不隐藏
+  useEffect(() => {
+    if (activeTab === 'plan' && currentWorker?.strategy_info?.has_price_plan === false) {
+      setActiveTab(DEFAULT_TAB);
+      window.history.replaceState(null, '', `#${DEFAULT_TAB}`);
+    }
+  }, [activeTab, currentWorker]);
+
   // 同步到 selectedWorker
   useEffect(() => {
     if (currentWorker && (!selectedWorker || selectedWorker.id !== currentWorker.id)) {
@@ -241,6 +251,7 @@ const WorkerDetail = () => {
   const workerConfig = currentWorker.config ?? {};
 
   // 7 个 tab 顺序：总览 → 交易 → 决策 → 风控 → 参数 → 价格计划 → 日志
+  // （策略无 price_plan 能力、has_price_plan === false 时价格计划项不渲染，实际 6 个）
   // 所有标签使用 i18n
   const tabItems = [
     {
@@ -281,11 +292,17 @@ const WorkerDetail = () => {
       label: t('parameters'),
       children: <WorkerParamsTab worker={currentWorker} />,
     },
-    {
-      key: 'plan',
-      label: t('pricePlan.detail_tab_label'),
-      children: <WorkerPricePlanTab workerId={currentWorker.id} />,
-    },
+    // 价格计划 tab 按策略能力显隐：仅当后端显式 has_price_plan === false 才整个
+    // 不进 tab 栏；字段缺失沿用现状显示（避免旧后端/registry 探测失败误隐藏）
+    ...(currentWorker.strategy_info?.has_price_plan === false
+      ? []
+      : [
+          {
+            key: 'plan',
+            label: t('pricePlan.detail_tab_label'),
+            children: <WorkerPricePlanTab workerId={currentWorker.id} />,
+          },
+        ]),
     {
       key: 'logs',
       label: t('logs'),
