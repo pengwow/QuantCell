@@ -355,3 +355,65 @@ def test_state_has_price_plan_false_when_probe_fails(detail_client, monkeypatch)
     monkeypatch.setattr("strategy.routes.get_strategy_service", _boom)
     data = detail_client.get("/api/v1/workers/1/state").json()["data"]
     assert data["strategy_info"]["has_price_plan"] is False
+
+
+# ---------------------------------------------------------------------------
+# to_dict().strategy_info 能力位透传（列表 + 详情接口共用）：registry info
+# 有 has_price_plan 键才带上，无键 / registry 读不到不写键——
+# 前端语义：字段缺失 = 显示价格计划 tab，显式 false 才隐藏。
+# ---------------------------------------------------------------------------
+
+
+class _RegistryInfoSvc:
+    """registry stub：get_strategy 返回可控 info dict（info 传 Exception 则模拟探测炸）"""
+
+    def __init__(self, info):
+        self.info = info
+
+    def get_strategy(self, name):
+        if isinstance(self.info, Exception):
+            raise self.info
+        return self.info
+
+
+def _transient_worker_row():
+    """真实 Worker 模型的未入库实例（to_dict 在无 session 下可安全调用）"""
+    import strategy.models  # 注册 Strategy mapper，Worker.strategy relationship 才能解析
+    from strategy.models import Strategy
+    from worker.models import Worker
+
+    row = Worker(name="w", strategy_id=30)
+    row.strategy = Strategy(id=30, name="grid", description="", strategy_type="rule", version="1")
+    return row
+
+
+def test_to_dict_strategy_info_passes_through_has_price_plan(monkeypatch):
+    row = _transient_worker_row()
+    monkeypatch.setattr(
+        "strategy.routes.get_strategy_service",
+        lambda: _RegistryInfoSvc({"name": "grid", "has_price_plan": True}),
+    )
+    info = row.to_dict()["strategy_info"]
+    assert info["has_price_plan"] is True
+    assert info["name"] == "grid"
+
+
+def test_to_dict_strategy_info_omits_key_when_registry_lacks_it(monkeypatch):
+    row = _transient_worker_row()
+    # registry info 无该键（旧 strategy 文档缺 price_plan 协议字段的形态）→ 不写键
+    monkeypatch.setattr(
+        "strategy.routes.get_strategy_service",
+        lambda: _RegistryInfoSvc({"name": "grid"}),
+    )
+    info = row.to_dict()["strategy_info"]
+    assert "has_price_plan" not in info
+    assert info["name"] == "grid"
+
+    # registry 读不到（探测炸）→ 同样不写键，且既有字段不受影响
+    monkeypatch.setattr(
+        "strategy.routes.get_strategy_service",
+        lambda: _RegistryInfoSvc(RuntimeError("registry unavailable")),
+    )
+    info = row.to_dict()["strategy_info"]
+    assert "has_price_plan" not in info
+    assert info["name"] == "grid"

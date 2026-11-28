@@ -230,13 +230,28 @@ class Worker(Base):
         try:
             if not self.strategy:
                 return None
-            return {
+            info = {
                 "id": self.strategy.id,
                 "name": self.strategy.name,
                 "description": self.strategy.description,
                 "strategy_type": self.strategy.strategy_type,
                 "version": self.strategy.version,
             }
+            # has_price_plan 从 registry info（策略文档解析产物）原样透传：
+            # 有键才写键，registry 读不到/无该键时不写——前端以「显式 false 才隐藏
+            # 价格计划 tab，缺失=显示」消费，所以这里不回退默认值。
+            if self.strategy.name:
+                try:
+                    # 函数内 import：strategy.service 与 workers 包存在模块加载期循环依赖
+                    # （同 worker/routes._strategy_has_price_plan 的处理）
+                    from strategy.routes import get_strategy_service
+
+                    registry_info = get_strategy_service().get_strategy(self.strategy.name)
+                    if isinstance(registry_info, dict) and "has_price_plan" in registry_info:
+                        info["has_price_plan"] = registry_info["has_price_plan"]
+                except Exception:
+                    pass
+            return info
         except Exception:
             return None
 
