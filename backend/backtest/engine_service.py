@@ -1022,6 +1022,8 @@ class EventDrivenBacktestService:
             "total_fees": result.total_fees,
             "trade_count": len(result.trade_records),
             "trades": list(result.trade_records),
+            # 逐笔成交明细：unclosed 对账与 RL 兜底表的数据源，丢掉则指标卡计数无明细可对
+            "fills_detail": list(getattr(result, "fills_detail", []) or []),
             "equity_curve": list(result.equity_curve),
             "data_start_ns": result.data_start_ns,
             "data_end_ns": result.data_end_ns,
@@ -1409,6 +1411,8 @@ class EventDrivenBacktestService:
             data_end_ns=data_end_ns,
             bar_count=len(df) if df is not None else 0,
             final_positions=dict(rust_result.final_positions),
+            # 逐笔成交明细接回：指标卡 fills 计数的数据源就是它，缺了明细则详情页无法对账
+            fills_detail=[dict(f) for f in getattr(rust_result, "fills_detail", []) or []],
             liquidation_events=liquidation_events,
             insurance_fund_loss=float(getattr(rust_result, "insurance_fund_loss", 0.0) or 0.0),
             price_basis=getattr(rust_result, "price_basis", "close") or "close",

@@ -72,14 +72,15 @@ const KpiCard = ({ label, value, tone, hint }: { label: string; value: string; t
 
 // 逐笔成交兜底表：round-trip 稀疏（如 RL 目标仓位策略持仓长期不归零）时
 // 在交易详情 Card 内展示 fill 粒度记录，替代误导性的「无完整交易记录」空态
-const FillsDetailTable = ({ fills }: { fills: BacktestFill[] }) => {
+const FillsDetailTable = ({ fills, hint }: { fills: BacktestFill[]; hint?: string }) => {
   const { t } = useTranslation();
   // 客户端分页（fill 是结果 JSON 附属数据，无服务端分页端点）；DataTable 必须受控传 current/onChange
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   return (
     <>
-      <Alert type="info" showIcon style={{ marginBottom: 12 }} title={t('backtest_fills_detail_hint')} />
+      {/* hint 可选：目标仓位兜底与未平仓成交两个场景共用同一列契约，但说明文案不同 */}
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} title={hint ?? t('backtest_fills_detail_hint')} />
       <DataTable<BacktestFill>
         rowKey="fill_id"
         dataSource={fills}
@@ -190,6 +191,8 @@ interface BacktestResponse {
   trades: Trade[];
   /** 逐笔成交明细（fill 粒度）：round-trip 稀疏时（如 RL 目标仓位策略）兜底展示，旧任务无此键 */
   fills_detail?: BacktestFill[];
+  /** 悬空成交（开仓未平仓 fill）：指标卡交易笔数 = Σ回合内 fill + Σ悬空 fill，用于完整对账，旧任务无此键 */
+  unclosed_fills?: BacktestFill[];
   equity_curve: EquityCurvePoint[];
   factors?: BacktestFactors;
   // 多品种结果：实际有数据的品种列表、当前返回品种
@@ -848,6 +851,11 @@ const BacktestDetail = () => {
             </Button>
           }
         >
+          {/* 旧任务降级提示：有回合交易但 fills_detail / unclosed_fills 均缺，
+              说明任务生成于「fills_detail 接回引擎」之前；对账块不可用，回合内展开不受影响 */}
+          {rawTrades.length > 0 && !(backtestData?.fills_detail?.length) && !(backtestData?.unclosed_fills?.length) && (
+            <Alert type="info" showIcon style={{ marginBottom: 12 }} title={t('backtest_legacy_fills_missing')} />
+          )}
           {/* 高级筛选区域（§4 内嵌面板） */}
           {showAdvancedFilter && (
             <div className="bt-filter-box">
@@ -931,6 +939,21 @@ const BacktestDetail = () => {
             />
           ) : (
             <QcEmpty title={t('no_trade_records')} />
+          )}
+
+          {/* 未平仓成交：未被任何 round-trip 引用的悬空 fill（开仓未平仓）。
+              对账关系见提示文案——指标卡交易笔数 = 回合内成交（表格展开）+ 未平仓成交 */}
+          {(backtestData?.unclosed_fills?.length ?? 0) > 0 && (
+            <Card
+              size="small"
+              title={t('backtest_unclosed_fills_title', { num: backtestData!.unclosed_fills!.length })}
+              style={{ marginTop: 16 }}
+            >
+              <FillsDetailTable
+                fills={backtestData!.unclosed_fills!}
+                hint={t('backtest_unclosed_fills_reconcile')}
+              />
+            </Card>
           )}
         </Card>
 

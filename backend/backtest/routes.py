@@ -25,6 +25,7 @@
 
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -824,8 +825,24 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             task = db.query(BacktestTask).filter_by(id=backtest_id).first()
 
             if not task:
-                logger.error(f"回测任务不存在，回测ID: {backtest_id}")
-                return ApiResponse(code=1, message="回测任务不存在", data={})
+                # 兜底：部分任务只有任务文件 + 结果 JSON、没有 DB 行（如历史版本
+                # /backtest/run 或外部入口直接落盘）。结果 JSON 才是详情的真实数据
+                # 源，文件任务也应可打开，不能因 DB 缺行把详情页打死。
+                # ponytail: SimpleNamespace 影子对象承接 ORM task 被读取的三个字段
+                file_task = backtest_service.get_task_file(backtest_id)
+                if not file_task:
+                    logger.error(f"回测任务不存在，回测ID: {backtest_id}")
+                    return ApiResponse(code=1, message="回测任务不存在", data={})
+                task = SimpleNamespace(
+                    id=str(backtest_id),
+                    strategy_name=str(file_task.get("strategy_name") or ""),
+                    status=str(file_task.get("status") or "completed"),
+                    # 任务文件存 ISO 字符串，转 datetime 与 DB 行路径同构（响应统一 isoformat()）
+                    created_at=datetime.fromisoformat(str(file_task["created_at"]))
+                    if file_task.get("created_at")
+                    else None,
+                    backtest_config=json.dumps(file_task.get("config") or {}, ensure_ascii=False, default=str),
+                )
 
             # 解析回测配置
             backtest_config = {}
@@ -850,6 +867,9 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
             # 逐笔成交明细（fill 粒度）：round-trip trades 稀疏时（如 RL 目标仓位
             # 策略持仓长期不归零）详情页兜底展示，随单品种 entry 透传
             fills_detail: list = []
+            # 悬空成交（开仓未平仓 fill）：指标卡 fills 计数与回合表展开明细的差集，
+            # 与 fills_detail 一起构成完整对账闭环
+            unclosed_fills: list = []
             equity_curve: list = []
             positions: list = []
             factors: dict = {}
@@ -909,6 +929,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                     metrics = entry.get("metrics") or []
                     trades = entry.get("trades") or []
                     fills_detail = entry.get("fills_detail") or []
+                    unclosed_fills = entry.get("unclosed_fills") or []
                     equity_curve = entry.get("equity_curve") or []
                     positions = entry.get("positions") or []
                     factors = entry.get("factors") or {}
@@ -931,6 +952,7 @@ def get_backtest_detail(backtest_id: str, symbol: str | None = None) -> ApiRespo
                 "equity_curve": equity_curve,
                 "trades": trades,
                 "fills_detail": fills_detail,
+                "unclosed_fills": unclosed_fills,
                 "positions": positions,
                 "factors": factors,
                 # 保证金模拟结果（逐档强平审计视图 + 穿仓损失），前端据此渲染强平卡片

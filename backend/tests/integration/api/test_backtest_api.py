@@ -414,6 +414,42 @@ class TestBacktestDetailAPI:
         data = response.json()
         assert data["data"]["decisions"] == mock_json_result["results"]["decisions"]
 
+    def test_get_backtest_detail_file_task_fallback(self, client: TestClient, mocker, assert_api_response):
+        """DB 无任务行但任务文件存在时，详情接口应以文件任务兜底返回 code=0
+
+        历史上存在只落任务文件/结果 JSON、未写 backtest_tasks 表的任务，
+        详情不能因 DB 缺行而 404（结果 JSON 才是详情的真实数据源）。
+        """
+        file_task = {
+            "id": "bt_file_only",
+            "strategy_name": "grid",
+            "status": "completed",
+            "created_at": "2026-11-28T17:13:32.064876",
+            "config": {"symbols": ["BTCUSDT"], "interval": "1h", "engine_type": "default"},
+        }
+        mock_result = {
+            "status": "completed",
+            "results": {"metrics": {"sharpe_ratio": 1.5}, "trades": []},
+        }
+        mocker.patch("backtest.routes.backtest_service.get_task_file", return_value=file_task)
+        mocker.patch("backtest.routes.backtest_service.get_result", return_value=mock_result)
+
+        response = client.get("/api/v1/backtest/bt_file_only")
+        assert_api_response(response)
+        data = response.json()
+        assert data["code"] == 0
+        assert data["data"]["strategy_name"] == "grid"
+        assert data["data"]["status"] == "completed"
+        assert data["data"]["backtest_config"]["interval"] == "1h"
+        assert data["data"]["created_at"] == "2026-11-28T17:13:32.064876"
+
+    def test_get_backtest_detail_no_task_no_file(self, client: TestClient, mocker):
+        """DB 无任务行且任务文件也缺失 → 仍报任务不存在"""
+        mocker.patch("backtest.routes.backtest_service.get_task_file", return_value={})
+        response = client.get("/api/v1/backtest/bt_neither")
+        assert response.status_code == 200
+        assert response.json()["code"] == 1
+
 
 class TestBacktestSymbolsAPI:
     """回测货币对列表API测试类"""

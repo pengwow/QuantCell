@@ -258,20 +258,22 @@ const BacktestProgressModal = ({
     stepStatus.analysis === 'error';
   const isStopped = errorMessage?.includes('已终止') || errorMessage?.includes('已取消');
 
-  // 跳转到策略管理-回测记录页面
+  // 跳转到回测结果详情页
   const handleViewResult = () => {
-    // 构建查询参数
+    // 关闭弹窗并跳转
+    onCancel();
+    // taskId 即 /backtest/run 生成的 uuid，同时是 BacktestTask 记录主键，
+    // 与回测列表 record.id、/backtest/detail/:id 详情路由同源（HomePage/研究页均此深链模式），
+    // 完成态结果已入库可直接打开详情；taskId 缺失时才退回列表页按策略过滤
+    if (taskId) {
+      navigate(`/backtest/detail/${taskId}`);
+      return;
+    }
     const params = new URLSearchParams();
     params.set('tab', 'backtests');
-    if (taskId) {
-      params.set('taskId', taskId);
-    }
     if (strategyName) {
       params.set('strategy', strategyName);
     }
-
-    // 关闭弹窗并跳转
-    onCancel();
     navigate(`/strategy-management?${params.toString()}`);
   };
 

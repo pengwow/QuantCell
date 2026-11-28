@@ -88,6 +88,10 @@ class BacktestResult:
     data_end_ns: int = 0
     bar_count: int = 0
     final_positions: dict = field(default_factory=dict)
+    # 逐笔成交明细（fill 粒度，Rust 引擎回传；Python 路径保持默认值）。
+    # 指标卡的 fills 计数（开仓+平仓口径）必须有逐笔明细可对账，此前映射层
+    # 丢弃该数据导致详情页"指标卡 4 笔、回合表展开只有 2 笔"对不上账。
+    fills_detail: list = field(default_factory=list)
     # 保证金/强平相关（未启用保证金模拟时保持空值，Python 路径不填充）
     liquidation_events: list = field(default_factory=list)
     insurance_fund_loss: float = 0.0

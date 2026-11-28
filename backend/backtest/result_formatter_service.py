@@ -10,7 +10,7 @@
 日期: 2026-06-29
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from backtest import derived_metrics, robustness
 from utils.logger import LogType, get_logger
@@ -740,6 +740,42 @@ class ResultFormatterService:
             },
         ]
 
+        # 逐笔对账：未被任何 round-trip 引用的悬空 fill（开仓未平仓）。指标卡 fills
+        # 计数 = Σ回合内 fill + Σ悬空 fill，数据齐了详情页才能完整对账；否则
+        # "指标卡 4 笔、回合表只展开出 2 笔"的缺口无处可解释。
+        # 入参有两种 fill 契约，字段取值需兼容：
+        # - Rust 引擎原始字段：timestamp_ns(纳秒) / taker_side("Buy"/"Sell")
+        # - RL 链预格式化 fill_rows：timestamp(秒) / side(小写) / 自带 formatted_time
+        fills_detail_raw = results.get("fills_detail", []) or []
+        used_fill_ids = {f.get("fill_id") for rt in trades for f in (rt.get("fills") or [])}
+
+        def _unclosed_time(fd: dict) -> tuple[int, str]:
+            """归一悬空 fill 的时间：优先直接复用预格式化值，避免双契约下重复换算。"""
+            pre = fd.get("formatted_time")
+            if pre:
+                return int(fd.get("timestamp") or 0), str(pre)
+            ts_sec = int(fd.get("timestamp_ns") or 0) // 1_000_000_000
+            return ts_sec, datetime.fromtimestamp(ts_sec, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+        unclosed_fills = []
+        for fd in fills_detail_raw:
+            if fd.get("fill_id") in used_fill_ids:
+                continue
+            ts_sec, fmt = _unclosed_time(fd)
+            unclosed_fills.append(
+                {
+                    "fill_id": fd.get("fill_id"),
+                    # 悬空 fill 只可能是开仓方向（平仓 fill 必然落在某个回合里）
+                    "side": str(fd.get("taker_side") or fd.get("side") or "").lower(),
+                    "offset": "open",
+                    "price": float(fd.get("price") or 0.0),
+                    "quantity": float(fd.get("quantity") or 0.0),
+                    "timestamp": ts_sec,
+                    "formatted_time": fmt,
+                    "status": "filled",
+                }
+            )
+
         formatted = {
             key: {
                 "symbol": symbol,
@@ -749,6 +785,7 @@ class ResultFormatterService:
                 # 逐笔成交明细（fill 粒度）：round-trip trades 天然稀疏（如 RL 目标
                 # 仓位策略持仓长期不归零）时由详情页兜底展示；缺省空时前端不渲染
                 "fills_detail": results.get("fills_detail", []),
+                "unclosed_fills": unclosed_fills,
                 "positions": results.get("positions", []),
                 "equity_curve": results.get("equity_curve", []),
                 # 清洗后的 K 线（回放页 kline_data 数据源，仅存结果 JSON）

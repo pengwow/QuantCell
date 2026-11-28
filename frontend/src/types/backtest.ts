@@ -188,6 +188,8 @@ export interface BacktestDetailData {
   trades: Trade[];
   /** 逐笔成交明细（fill 粒度）：round-trip 稀疏时（如 RL 目标仓位策略）详情页兜底展示 */
   fills_detail?: BacktestFill[];
+  /** 悬空成交（开仓未平仓 fill）：指标卡交易笔数 = Σ回合内 fill + Σ悬空 fill，用于完整对账 */
+  unclosed_fills?: BacktestFill[];
   status: string;
   created_at: string;
 }

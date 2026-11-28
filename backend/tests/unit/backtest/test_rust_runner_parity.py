@@ -237,6 +237,12 @@ def _assert_deep_parity(py, rs, path: str = "") -> None:
             # 字段（deflated_sharpe/pbo/cost_curve/grade）均为确定性计算，照常比对
             if in_robustness and k == "sharpe_ci":
                 continue
+            # fills_detail / unclosed_fills 是 Rust 引擎回传的逐笔明细及其「回合引用差集」
+            # 派生键，仅 Rust 编排路径产生（Python BacktestLoop 按设计保持空，见
+            # BacktestResult.fills_detail 注释）；fill 归属一致性由 _assert_parity 的
+            # entry/exit_fill_ids + fills 逐条断言守护，格式化层的这两键不参与 deep 比对
+            if k in ("fills_detail", "unclosed_fills"):
+                continue
             assert k in py and k in rs, f"{path}.{k} 单边存在"
             _assert_deep_parity(py[k], rs[k], f"{path}.{k}")
     elif isinstance(py, list) and isinstance(rs, list):

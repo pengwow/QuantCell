@@ -1474,6 +1474,22 @@ class BacktestService:
         tasks_dir.mkdir(parents=True, exist_ok=True)
         return tasks_dir / f"task_{task_id}.json"
 
+    def get_task_file(self, task_id: Any) -> dict:
+        """读取任务文件内容（详情接口对无 DB 行任务的兜底数据源）。
+
+        历史上存在只落任务文件未写 backtest_tasks 表的任务，详情页不应因此 404。
+        无文件或解析失败返回 {}（详情侧按"任务不存在"处理）。
+        """
+        task_file = self._get_task_file(task_id)
+        if not task_file.exists():
+            return {}
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            self.logger.warning(f"读取回测任务文件失败 任务ID: {task_id}: {e}")
+            return {}
+
     def _get_result_file(self, result_id: Any) -> Path:
         """获取结果文件路径"""
         return self.results_dir / f"result_{result_id}.json"
