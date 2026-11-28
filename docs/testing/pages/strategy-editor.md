@@ -33,7 +33,7 @@
 
 ## 历史雷区
 - **模板参数表单同名重复**（已修 2026-11-27）：`self.get_param("direction", "long")` 带 Literal 注解在策略的两个方法里各出现一次时，`strategy/service.py::_extract_params_from_get_param` 的 AnnAssign 分支漏检 `seen` 去重，templates 接口返回两个 `direction`、创建表单重复渲染同名字段。已修为「首次绑定为准」；E3b 的「不重复渲染」是回归哨。自写策略里同一参数多处取值属正常写法，提取器必须兜住
-- **价格计划 tab 已从编辑器移除**（2026-11-27）：编辑器态没有货币对/运行时参考价，参考价全靠手填不实用。价格计划展示只保留 worker 链路（创建弹窗自检 / 启动确认 / 详情 plan tab / 列表摘要）与 chart / backtest 回放 overlay；后端 `POST /api/v1/strategies/preview` 仍被 worker 链路使用，勿删。验证项见 `pages/strategy-worker.md` W32-W36
+- **价格计划 tab 已从编辑器移除**（2026-11-27）：编辑器态没有货币对/运行时参考价，参考价全靠手填不实用。价格计划展示只保留 worker 链路（创建弹窗自检 / 启动确认 / 详情 plan tab / 列表摘要）与 backtest 回放 overlay；后端 `POST /api/v1/strategies/preview` 仍被 worker 链路使用，勿删。验证项见 `pages/strategy-worker.md` W32-W36。chart 页价格计划控制条已于 2026-11-28 移除（C14 同步删除）
 - **成对括号配色**（2026-11-20）：Monaco 默认开启 bracket pair colorization，`()`/`[]`/`{}` 会染金/紫/粉，与基准 demo 的单色括号不一致。修法是在主题里把 `editorBracketHighlight.foreground1..6` 统一到 `#d4d4d4`（`src/monaco/quantcellTheme.ts`）；**注意 `options.bracketPairColorization.enabled: false` 经 `@monaco-editor/react` 传不进去，别走那条路**
 - **编辑器 token 色的唯一真相源是 `src/monaco/quantcellTheme.ts`**（不是 demo）。demo 的 `.tk-*` 是静态 mock，`node docs/design/check-spec.mjs` 会比对两者，改色必须三处同步：主题文件 → demo CSS → spec §6.16 表
 - **`[object Object]`**（已修 75077d29）：后端 400 错误体 `{detail:{message}}` 被整体塞进 Error。E4b 是回归哨——**凡错误断言先看文案可读性**
