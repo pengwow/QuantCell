@@ -81,7 +81,9 @@ export interface WorkerState {
 
 interface WorkerActions {
   // 数据获取
-  fetchWorkers: (params?: WorkerFilterParams) => Promise<void>;
+  // silent=true 时只更新数据、不触碰页面级 loading（供轮询/操作后的后台刷新用，
+  // 避免单个 Worker 操作把整页遮罩转圈）
+  fetchWorkers: (params?: WorkerFilterParams, silent?: boolean) => Promise<void>;
   fetchWorkerDetail: (workerId: number) => Promise<void>;
   fetchTrades: (workerId: number, params?: TradeQueryParams) => Promise<void>;
   fetchLogs: (workerId: number, params?: LogQueryParams) => Promise<void>;
@@ -178,25 +180,26 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       // 数据获取操作
       // ============================================
 
-      fetchWorkers: async (params) => {
-        set({ loading: true, error: null });
+      fetchWorkers: async (params, silent) => {
+        if (!silent) set({ loading: true, error: null });
         try {
           const response = await workerApi.getWorkers({
             page: get().page,
             page_size: get().pageSize,
             ...params,
           });
+          // silent 刷新不写 loading 字段：页面级 Spin 只由显式拉取（初始加载/手动刷新）驱动
           set({
             workers: response.items,
             total: response.total,
             page: response.page,
             pageSize: response.page_size,
-            loading: false,
+            ...(silent ? {} : { loading: false }),
           });
         } catch (error) {
           set({
             error: error instanceof Error ? error.message : '获取Worker列表失败',
-            loading: false,
+            ...(silent ? {} : { loading: false }),
           });
           get().messageApi?.error(error instanceof Error ? error.message : '获取Worker列表失败');
         }
@@ -367,8 +370,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           get().messageApi?.success('Worker启动中');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'starting');
-          // 延迟刷新获取最新状态
-          setTimeout(() => get().fetchWorkers(), 2000);
+          // 延迟刷新获取最新状态（静默：只更新该行数据，不遮整页）
+          setTimeout(() => get().fetchWorkers(undefined, true), 2000);
           return true;
         } catch (error) {
           get().messageApi?.error(error instanceof Error ? error.message : '启动Worker失败');
@@ -382,8 +385,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           get().messageApi?.success('Worker停止成功');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'stopped');
-          // 延迟刷新获取最新状态
-          setTimeout(() => get().fetchWorkers(), 1000);
+          // 延迟刷新获取最新状态（静默：只更新该行数据，不遮整页）
+          setTimeout(() => get().fetchWorkers(undefined, true), 1000);
           return true;
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message || error.toString() : error ? String(error) : '';
@@ -406,8 +409,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           get().messageApi?.success('Worker重启中');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'starting');
-          // 延迟刷新获取最新状态
-          setTimeout(() => get().fetchWorkers(), 3000);
+          // 延迟刷新获取最新状态（静默：只更新该行数据，不遮整页）
+          setTimeout(() => get().fetchWorkers(undefined, true), 3000);
           return true;
         } catch (error) {
           get().messageApi?.error(error instanceof Error ? error.message : '重启Worker失败');

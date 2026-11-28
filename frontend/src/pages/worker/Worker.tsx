@@ -157,7 +157,8 @@ const Worker = () => {
     fetchWorkers();
     // Set up auto-refresh interval
     const interval = setInterval(() => {
-      fetchWorkers();
+      // 轮询静默刷新：整页 Spin 只留给显式操作，周期性拉数据不遮页面
+      fetchWorkers(undefined, true);
     }, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, [fetchWorkers]);
@@ -346,11 +347,23 @@ const Worker = () => {
   }, [stopWorker, t, apiMessage, submittingWorkerIds]);
 
   const handleRestart = useCallback(async (worker: WorkerType) => {
-    const success = await restartWorker(worker.id);
-    if (success) {
-      apiMessage.success(t('worker_restart_success'));
+    // 行级防抖 loading：重启是后台异步编排（接口立即返回 stopping），
+    // 转圈只应出现在该 Worker 的按钮上，不得遮罩整个列表
+    if (submittingWorkerIds.has(worker.id)) return;
+    setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
+    try {
+      const success = await restartWorker(worker.id);
+      if (success) {
+        apiMessage.success(t('worker_restart_success'));
+      }
+    } finally {
+      setSubmittingWorkerIds((prev) => {
+        const next = new Set(prev);
+        next.delete(worker.id);
+        return next;
+      });
     }
-  }, [restartWorker, t, apiMessage]);
+  }, [restartWorker, t, apiMessage, submittingWorkerIds]);
 
   const handleOptimize = useCallback(async (worker: WorkerType) => {
     try {
@@ -744,6 +757,7 @@ const Worker = () => {
             <Button
               size="small"
               icon={<ReloadOutlined />}
+              loading={submittingWorkerIds.has(worker.id)}
               onClick={() => handleRestart(worker)}
               style={{ width: '100%' }}
             >
@@ -766,6 +780,7 @@ const Worker = () => {
           <Button
             size="small"
             icon={<ReloadOutlined />}
+            loading={submittingWorkerIds.has(worker.id)}
             onClick={() => handleRestart(worker)}
             style={{ width: '100%' }}
           >
@@ -967,6 +982,7 @@ const Worker = () => {
                 key: 'restart',
                 label: t('restart'),
                 icon: <ReloadOutlined />,
+                disabled: submittingWorkerIds.has(worker.id),
               },
               {
                 key: 'edit',

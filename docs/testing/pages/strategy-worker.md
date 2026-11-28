@@ -19,7 +19,7 @@
 | W5 | 状态筛选选「已停止」 | 列表只剩状态标签为「已停止」的行或空态；不发起新请求 | L2 |
 | W6 | 勾选任意一行 | 出现批量栏「已选择 N 个 Worker」及「批量启动」「批量停止」「批量重启」「取消选择」；点「取消选择」后批量栏消失且**未发起** `lifecycle/*` 请求 | L2 |
 | W7 | 点某行的删除图标 | 弹「确定删除此Worker？」；点「否」关闭且该行仍在（不发起 `DELETE /api/v1/workers/<id>`） | L2 |
-| W8 | 在列表页静止停留 35 秒 | 观察到 `GET /api/v1/workers` 出现第二轮请求；期间页面出现加载遮罩属正常（全局 loading），无报错弹窗 | L2 |
+| W8 | 在列表页静止停留 35 秒 | 观察到 `GET /api/v1/workers` 出现第二轮请求；期间**无整页加载遮罩**（轮询是静默刷新，页面交互不中断），无报错弹窗 | L2 |
 | W9 | 在运行中的 worker 卡片点「日志」 | 弹窗标题「Worker 日志」，内含「实时日志」标题、级别筛选、「暂停」「清除日志」；日志流断开时显示「⚠ 日志流已断开」而页面不崩（SSE 经反代可能被缓冲，属环境类，如实记录） | L2（外部依赖，不断言日志有内容） |
 | W10 | 详情页「总览」页签 | 顶部 8 张 §6.4 `.qc-kpi` 卡（`--qc-border` 边 + `--qc-surface` 底，数字 mono 22/650）：「总盈亏」「收益率」「胜率」「盈亏比」「Profit Factor」按方向染涨跌色，「Sharpe」<1 为警示色，「最大回撤」「交易次数」恒中性；四张持仓摘要 KPI（总持仓价值/总未实现盈亏/总保证金/总 ROE）同制式；**键盘可操作**：KPI 卡有 `role="button"`，Tab 聚焦后按 Enter/空格触发与点击一致；时间档 24h/7d/30d/90d/全部 可切换；「累计收益曲线」「每日盈亏」「当前持仓实时」三张 `.qc-card` 可见（持仓激活时标题带 info chip + pulse 圆点；持仓表 symbol/杠杆 mono、方向多空涨跌色）；无数据时图表区显示「暂无数据」；加载骨架与实况同构不跳变；`GET /api/v1/workers/<id>/stats/overview?window=...` 200 | L2 |
 | W11 | 详情页切到「交易」页签 | 卡片标题「交易详情」，激活时带「实时」chip（info 档 + pulse 圆点）；表头含「订单号」「交易对」「方向」「类型」「数量」「状态」；订单号/交易对/时间为 mono 弱文本，状态列为语义 chip（FILLED=ok、OPEN=info+圆点、CANCELED=quiet、REJECTED=down）；分页档位 12/24/36…（12 的倍数）；无数据时显示 `.qc-empty` 空态；`GET /api/v1/workers/<id>/monitoring/trades` 200（激活期每 3 秒轮询，属预期） | L2 |
@@ -53,6 +53,7 @@
 | W37 | 后端 API 探针（无前端入口）：`GET /api/v1/marketdata/klines?symbol=BTCUSDT&interval=15m&limit=120` | 200，`data` 为 `[{ts,open,high,low,close,volume}]` 时间升序、ts 毫秒原样；`interval=2m` → 422（invalid_interval）；`limit=999` → 422（Pydantic `le=500` 在路由边界拒绝，不静默截断；服务层 `fetch_recent_klines` 内部仍 clamp None→120 / >500→500 供非 HTTP 调用方）；`market_type=futures` 走 fapi 域名且响应同构；`exchange=okx` → 400（unsupported_exchange）；断网/回源失败 → 502（exchange_unreachable，不降级） | L1 |
 | W38 | 详情页打开**无 price_plan 能力**策略的 worker（策略文档未实现 price_plan 协议，`strategy_info.has_price_plan === false`） | 详情页 tab 栏**无「价格计划」项**（参数后直接是日志，共 6 个 tab）；当前停在别的 tab 时无扰动；仅当显式 `false` 才隐藏——旧后端/registry 探测失败等字段缺失场景 tab 照常显示，不误隐藏 | L2 |
 | W39 | 有 price_plan 能力策略（马丁/网格类）的 worker 详情页 | 「价格计划」tab 仍在（显隐之外行为不变）；参考价格取**自动固化**兜底：启动时未手填参考价的标的按启动那一刻现价固化，个别标的取价失败该标的固化落 pending（详情页该标的 chip 带「（未固化）」） | L1 |
+| W40 | 点某运行中 worker 的「重启」（下拉菜单 / 卡片按钮 / 展开面板按钮） | 转圈只出现在**该 worker 自己的重启按钮**上（行级 `submittingWorkerIds`），整页无加载遮罩——其余行的「详情/展开/重启」在整个重启期间均可正常点击；W29 同步回归：展开面板内启停/重启钮也是行级 loading；重启后约 3 秒静默刷新一次，该行状态 tag 按 stopping→starting→(running/error) 流转，其余行数据仅正常例行更新 | L2 |
 
 ## Resume 自动恢复（以交易所为准）
 
@@ -80,12 +81,13 @@
 - **live/testnet「当前持仓」是交易所对账值，不是本地推导（2026-11-26 修）**：详情页持仓曾从 `worker_trades` 未配对 fill 净额推导，live 跨重启聚合出幻影持仓（交易所实际已平仓，页面仍显示 -1.698 ETH 残仓）。现 `LiveTradeSync.sync_positions` 每 10s 以 `fetch_positions` 对账落 `worker_positions`（交易所为唯一事实源，OPEN 行 upsert、平仓行收口 CLOSED、重启重演后复活）；`GET /workers/{id}/strategy/positions` 对 non-paper worker **不再退回推导**（表空宁可显示「暂无持仓数据」，与交易所一致）。driver connect 失败（如 demo userDataStream 30s 未建立）时同步线程根本没起来，持仓显示空也是对的——先看 worker 日志再怀疑链路
 - **`ExpandableCardGrid` 的 `renderExpanded` 参数是「该行末卡」而非「被点卡」**：组件按 `data-qc-card` 定位到被点卡的视觉行，把面板插在该行最后一张卡之后，回调却传的是那个末卡 item。直接写 `renderExpanded={(w) => renderExpanded(w)}` 会在同排非末卡展开时显示别人的详情（列表/卡片文字比对会抓出来）。本页按 `expandedId` 反查真正的 worker 再渲染（见 `renderCardView`）；其他页面复用该组件时同样要自查
 - **失败原因已随列表返回（2026-11-26 修）**：此前 `GET /workers` 不带 `error_message`，异常行要展开时单查详情接口补——重启失败后首屏看不到原因、进详情再返回才有。现列表项直接带 `_error_message`（来自 state_manager 快照），展开即显；前端旧的"展开时单查 GET /workers/{id}"逻辑已删
+- **30 秒自动刷新会盖遮罩（2026-11-28 修）**：列表页定时器与启停/重启后的延迟刷新曾共用 `fetchWorkers` 的全局 loading，遮罩期间点击不生效（单 worker 重启会遮整个页面）。现 `fetchWorkers(params, silent)` 支持静默刷新：30s 轮询与启动(+2s)/停止(+1s)/重启(+3s) 的延迟刷新都走 silent，整页 Spin 只留给显式操作（初始加载/手动刷新/优化触发）；重启另补行级 loading（W40）。若再见到操作单个 worker 遮整页，先查是不是有人把延迟刷新改回了非 silent
 - **重启是异步的，别用请求块断言状态（2026-11-26 修）**：`POST /{id}/lifecycle/restart` 曾在请求协程里 `_wait_for_terminal_state(15s)` 等 stop 收敛，前端转圈 15s+。现在接口只入队 stop 即返（实测按钮 550ms 恢复），stop 收敛+start 由后台线程接力，失败会 transition(error)。验证状态终态要轮询列表（stopping→starting→running/error），demo 环境下 martingale 可能因"user data stream 30s 未建立"进 error——那是环境/策略问题，不是重启链路 bug
+- **interrupted 残留状态曾导致重启报「不允许停止」（2026-11-28 修）**：进程重启收口后状态缓存停留 interrupted，而转换表 INTERRUPTED 出边缺 STOPPING，停止/重启被拒且缓存永不自愈。现补边后走 interrupted→stopping→stopped 正常链路，重启链路通；日志里stopping→stopping、stopped→stopped 的「非法状态转换」warning 是幂等重入，无害
 - **一级列表页不要加返回箭头**（2026-11-25）：`/strategy-worker` 列表页头曾带 `onBack → /home`（形制抄 demo 956），用户裁定删除——demo 的「← 返回首页」是原型演示形制，一级页（/home /chart /strategy-management …）都不带返回箭头，列表页带一个反而页头几何不一致。**只给详情页用 PageContainer 的 `onBack`**（如 `/strategy-worker/:id` W2），列表页新增时别顺手传 `onBack`
 - **行内展开单键且会被筛选清掉**：搜索/状态筛选/翻页都会自动收起面板（面板与其行否则会失联）；30 秒自动重拉**不会**收起面板，但 `error_message` 只在展开瞬间单查一次，刷新后的新原因要重新展开才看得到
 - **「创建/编辑 Worker」弹窗不归本页样式门禁**：两个 Modal 的表单交互属创建链路（W3），chrome 已挂 `qc-modal + qc-form`；若表单字段校验文案报错，先查 store 与 API 再怀疑样式收口
 - **不存在的 workerId 会永久转圈**：详情页在找不到 worker 时整页渲染加载态（`if (!currentWorker) return <Spin>`），既没有 404 也没有「返回列表」入口。用错/已删除的 id 打开只会一直转，先用 `/strategy-worker` 确认 id 再断言，别把它记成"页面卡住"的新 bug
-- **30 秒自动刷新会盖遮罩**：列表页定时器每次重拉都会置全局 loading，遮罩期间点击不生效。自动化脚本在 W8 期间穿插操作会得到假阴性，先等遮罩消失
 - **「最后更新时间」不是数据时间**：详情页头部该文案由本地 60 秒计时器驱动，接口没返回 `updated_at` 时会显示"几秒前"这类假新鲜度，不要拿它判断数据是否在刷新
 - **多路轮询叠加**：交易页签 3 秒、风控页签 30 秒、列表页 30 秒，切换页签会重新拉一次（按 active 触发）。连续快速切页签时表格可能短暂显示上一版数据（请求竞态），以最后一次响应为准再断言
 - **SSE 日志流经反代**：日志页签与日志弹窗走 `/api/v1/workers/<id>/monitoring/logs/stream`，打包预览的 `/api` 反代若缓冲 SSE，会显示「⚠ 日志流已断开」或日志不滚动——先查反代/网络，属环境类
