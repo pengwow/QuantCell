@@ -85,3 +85,30 @@ def test_recent_recovery_count_tolerates_bad_lines_and_missing_file(data_dir):
     a.write_text('not-json\n\n{"ts":"2026-11-28T10:00:00+00:00"}\n', encoding="utf-8")
     assert rar.recent_recovery_count(904, now=1795867200.0) == 1
     assert rar.recent_recovery_count(999) == 0
+
+
+# ---------- 总闸：开关 + 频次止损 ----------
+
+
+def test_should_auto_recover_disabled_by_flag(data_dir, monkeypatch):
+    monkeypatch.setattr("utils.config_manager.get_flag", lambda key, default: False)
+    ok, reason = rar.should_auto_recover(910)
+    assert ok is False
+    assert "开关" in reason
+
+
+def test_should_auto_recover_blocked_after_three_in_window(data_dir):
+    a = rar.recovery_log_path(911)
+    a.parent.mkdir(parents=True, exist_ok=True)
+    ts_row = json.dumps({"ts": "2026-11-28T10:00:00+00:00", "worker_id": 911, "verdict": "adopted"})
+    a.write_text("\n".join([ts_row] * 3) + "\n", encoding="utf-8")
+    ok, reason = rar.should_auto_recover(911, now=1795867200.0)
+    assert ok is False
+    assert "24h" in reason or "止损" in reason
+
+
+def test_should_auto_recover_allowed_by_default(data_dir, monkeypatch):
+    monkeypatch.setattr("utils.config_manager.get_flag", lambda key, default: default)
+    ok, reason = rar.should_auto_recover(912)
+    assert ok is True
+    assert reason == ""

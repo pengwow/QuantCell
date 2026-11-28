@@ -87,3 +87,20 @@ def recent_recovery_count(worker_id: int, *, now: float | None = None) -> int:
     except OSError:
         return 0
     return count
+
+
+def should_auto_recover(worker_id: int, *, now: float | None = None) -> tuple[bool, str]:
+    """自动恢复总闸：开关 + 频次止损。返回（是否允许，拒绝原因）。
+
+    拒绝原因用于 wlog 交代理由（不是人工确认门——只限制自动化冷却，
+    用户仍可手工点「归档并启动」）。
+    """
+    # 函数内 import 与 strategy_manager 同口径：config_manager 顶层拉
+    # collector.db，防 worker.__init__ 循环链在部分入口被点爆
+    from utils.config_manager import get_flag
+
+    if not get_flag("worker.resume_auto_recovery.enabled", True):
+        return False, "自动恢复开关关闭（worker.resume_auto_recovery.enabled）"
+    if recent_recovery_count(worker_id, now=now) >= _WINDOW_LIMIT:
+        return False, f"自动恢复止损：24h 内已自动归档重启 {_WINDOW_LIMIT} 次，需人工排查漂移根因"
+    return True, ""
