@@ -33,9 +33,11 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # interrupted：lifespan._mark_interrupted_workers 在进程重启时对残留 running 的
 # 如实标记，已纳入 WorkerState 枚举——唯一合法入口是启动收口路径的
 # running→interrupted 转换边（非收口路径一律被转换表拒绝）。它的事实语义等同
-# 停摆：驱动线程已随旧进程消亡。水合时仍按 'stopped' 处理：停止命中 stopped
-# 幂等特例、重启/启动走 stopped→starting 合法转换；DB 中的 interrupted 值保持
-# 到下一次 transition 随 _persist_state 覆写。
+# 停摆：驱动线程已随旧进程消亡。停止允许直接走 interrupted→stopping→stopped
+# 正常停止链路（stop 对无运行时幂等）；重新启动走 interrupted→starting；偏离
+# 上述出口的状态在下次 transition 随 _persist_state 收敛。水合时仍按 'stopped'
+# 处理：停止命中 stopped 幂等特例、重启/启动走 stopped→starting 合法转换；
+# DB 中的 interrupted 值保持到下一次 transition 随 _persist_state 覆写。
 RECOVERABLE_STATUSES = {"starting", "stopping", "restarting", "paused", "interrupted"}
 
 # 中间态超过该时长仍未收敛即视为残留（正常的同步 stop 为进程内直调、秒级收敛 + 兜底，
@@ -149,8 +151,13 @@ class WorkerState(Enum):
                 WorkerState.ERROR,
             ],
             WorkerState.INTERRUPTED: [
-                # 进程重启收口后的恢复出口：重新启动，或手动确认停机
+                # 进程重启收口后的恢复/停机出口：重新启动、走正常停止链路或手动确认停机。
+                # STOPPING 边是 async_stop_worker 停止链路的入口：收口后驱动线程已死
+                # （事实停摆），stop_worker 内部对无运行时幂等返回成功，允许
+                # stopping→stopped 收敛；若缺此边，停止/重启会被
+                # 「当前状态 (interrupted) 不允许停止」拒绝且缓存永不自愈
                 WorkerState.STARTING,
+                WorkerState.STOPPING,
                 WorkerState.STOPPED,
             ],
             WorkerState.STOPPING: [
