@@ -112,3 +112,51 @@ def test_should_auto_recover_allowed_by_default(data_dir, monkeypatch):
     ok, reason = rar.should_auto_recover(912)
     assert ok is True
     assert reason == ""
+
+
+# ---------- best-effort 撤单 ----------
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+
+def _fake_trade_sync(open_orders=None, raises=False):
+    ccxt = MagicMock()
+    if raises:
+        ccxt.fetch_open_orders.side_effect = RuntimeError("network down")
+    else:
+        ccxt.fetch_open_orders.return_value = open_orders or []
+    ts = SimpleNamespace(exchange=SimpleNamespace(exchange=ccxt), ccxt_symbol="ETH/USDT:USDT")
+    return ts, ccxt
+
+
+def test_cancel_skips_without_trade_sync():
+    wlog = MagicMock()
+    rar.best_effort_cancel_open_orders(None, wlog)
+    wlog.info.assert_called_once()
+
+
+def test_cancel_fetches_and_cancels_all_orders():
+    ts, ccxt = _fake_trade_sync(open_orders=[{"id": "1"}, {"id": "2"}])
+    wlog = MagicMock()
+    rar.best_effort_cancel_open_orders(ts, wlog)
+    ccxt.fetch_open_orders.assert_called_once_with("ETH/USDT:USDT")
+    assert ccxt.cancel_order.call_args_list == [
+        (("1", "ETH/USDT:USDT"),),
+        (("2", "ETH/USDT:USDT"),),
+    ]
+
+
+def test_cancel_swallows_fetch_failure():
+    ts, _ = _fake_trade_sync(raises=True)
+    wlog = MagicMock()
+    rar.best_effort_cancel_open_orders(ts, wlog)  # 不抛即通过
+    wlog.warning.assert_called()
+
+
+def test_cancel_swallows_per_order_failure():
+    ts, ccxt = _fake_trade_sync(open_orders=[{"id": "1"}])
+    ccxt.cancel_order.side_effect = RuntimeError("order gone")
+    wlog = MagicMock()
+    rar.best_effort_cancel_open_orders(ts, wlog)  # 不抛即通过
+    wlog.warning.assert_called()

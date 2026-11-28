@@ -104,3 +104,31 @@ def should_auto_recover(worker_id: int, *, now: float | None = None) -> tuple[bo
     if recent_recovery_count(worker_id, now=now) >= _WINDOW_LIMIT:
         return False, f"自动恢复止损：24h 内已自动归档重启 {_WINDOW_LIMIT} 次，需人工排查漂移根因"
     return True, ""
+
+
+def best_effort_cancel_open_orders(trade_sync: Any, wlog: Any) -> None:
+    """撤掉该 worker 品种的全部在挂单（best-effort，任何失败不抛出）。
+
+    撤单走 LiveTradeSync 内已构造好的 ccxt 实例（凭证/symbol/连接复用）；
+    trade_sync 为 None（LiveTradeSync 构造失败）时整体跳过——归档 adopt 的
+    暴露面与人工归档路径相同，撤单只是增强屏障，不构成处置前置条件。
+    """
+    if trade_sync is None:
+        wlog.info("自动恢复撤单跳过：无 trade_sync 成交同步通道")
+        return
+    ccxt = getattr(getattr(trade_sync, "exchange", None), "exchange", None)
+    if ccxt is None:
+        wlog.warning("自动恢复撤单跳过：trade_sync 未持有 ccxt 实例")
+        return
+    symbol = trade_sync.ccxt_symbol
+    try:
+        orders = ccxt.fetch_open_orders(symbol) or []
+    except Exception as e:
+        wlog.warning(f"自动恢复撤单失败（继续归档处置）: symbol={symbol}, error={e}")
+        return
+    for order in orders:
+        try:
+            ccxt.cancel_order(order.get("id"), symbol)
+        except Exception as e:
+            wlog.warning(f"自动恢复单笔撤单失败（继续）: symbol={symbol}, order_id={order.get('id')}, error={e}")
+    wlog.info(f"自动恢复撤单完成: symbol={symbol}, 处理挂单数={len(orders)}")
