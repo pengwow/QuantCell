@@ -52,7 +52,16 @@
 | W36 | 列表页展开任一有计划的 worker 行 | kv 网格下方出现「价格计划」摘要 chips（已触发 x/y，百分比，取缺省标的快照、不随详情页 chip 联动）；plan 接口失败时该段静默隐藏（无 console error，不阻断展开功能） | L2 |
 | W37 | 后端 API 探针（无前端入口）：`GET /api/v1/marketdata/klines?symbol=BTCUSDT&interval=15m&limit=120` | 200，`data` 为 `[{ts,open,high,low,close,volume}]` 时间升序、ts 毫秒原样；`interval=2m` → 422（invalid_interval）；`limit=999` → 422（Pydantic `le=500` 在路由边界拒绝，不静默截断；服务层 `fetch_recent_klines` 内部仍 clamp None→120 / >500→500 供非 HTTP 调用方）；`market_type=futures` 走 fapi 域名且响应同构；`exchange=okx` → 400（unsupported_exchange）；断网/回源失败 → 502（exchange_unreachable，不降级） | L1 |
 
+## Resume 自动恢复（以交易所为准）
+
+- [ ] 开关验证：`worker.resume_auto_recovery.enabled` 置 false（系统配置表）→ 制造切换为 error 的 live worker（如改端口/断网启动）→ worker 落「实盘连接/恢复失败」错误，行为与旧版本一致，不触发归档
+- [ ] 正常路径验证（testnet）：live worker 正常交易中断电/重启 → resume 对账通过时不触发自动恢复（对账一致本来就不会拒绝）
+- [ ] 止损验证：手工向 `backend/data/live/worker_{id}.auto_recovery.ndjson` 追加 3 行（`{"ts":"<当前 UTC ISO>","worker_id":N,"verdict":"adopted"}`）→ 启动一个 resume 守卫拒绝的 worker（有真实对账差异）→ 不自动归档，落错误 + 日志出现「需人工排查漂移根因」
+- [ ] 审计验证：自动恢复成功后 `worker_{id}.auto_recovery.ndjson` 多一行，`verdict` 为 `adopted`，`reconcile_report` 含 `position_breaks` 或 `cash_break`
+- [ ] 前端文案验证：恢复成功的 worker 日志面板出现「对账不一致，已归档并按交易所为准自动重建（fresh start adopt）」，worker 状态回到 running
+
 ## 历史雷区
+- **live resume 守卫拒绝时的自动恢复（2026-11-28）**：worker_3 实盘重启曾触发 Rust resume_guard 拒绝（venue 宕机期间成交 4 笔、journal 漏记，现金差≈手续费+资金费）。人工归档是正解但每次都要手点，已在 `_driver_live_thread_main` 挂钩自动恢复：归档 → fresh start（adopt）。注意守卫拒绝错误的前缀「恢复守卫拒绝继续交易」是 Rust 接口契约（axon_quant 有测试锁定），改前缀必须两侧同步
 - **创建/编辑 Worker 弹窗「策略参数」已移到「交易配置」之后（2026-11-28）**：按标的「覆盖参数」依赖已选标的，原「策略参数在前、交易配置在后」的顺序对用户是倒的；两弹窗现统一为 交易配置 → 策略参数 → 资金配置（→ 价格计划自检/风控）。验证时按此顺序断言分区位置
 - **Worker 多标的已从「只跑首标的」改为「逐标的独立实例」（2026-11-28 行为修正）**：此前 `_assemble_rule_paper_driver` / `start_crypto_live` 只把策略挂到 `symbols[0]`（其余标的只拉行情不出决策）；现按标的一一 `add_strategy`（指标窗口/持仓状态隔离，共享账户与统一风控，资金/风控参数取公共值）。验证多标的行为时别再用旧口径（「只首标的成交」）当预期。RL 策略例外：仍只挂首标的（启动日志 warning + 前端提示），按标的执行在路线图
 - **按标的参数覆盖的存储与合并（2026-11-28）**：`worker.config.strategy_params_by_symbol` 的键是 `expand_symbol` 规范化形态（`BTC/USDT`，存 `BTCUSDT` 也会被写入端规范化）；合并序 = 策略默认值 < 公共 `strategy_params` < 标的覆盖，`None/''` 视同未覆盖；唯一合并出口 `strategy/param_resolver.py`（预览、启动加载、价格计划固化、回测共用），**不要在前端或别处再写一套合并逻辑**
