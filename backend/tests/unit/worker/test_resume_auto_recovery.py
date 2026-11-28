@@ -235,3 +235,84 @@ def test_try_auto_recover_aborts_when_archive_fails(data_dir):
     assert ok is False
     assert not rar.recovery_log_path(924).exists()  # 归档失败不记审计
     wlog.error.assert_called()
+
+
+# ---------- 驱动线程挂钩 ----------
+
+import threading
+
+import worker.strategy_manager as sm_module
+from worker.strategy_manager import StrategyManager
+
+
+def _guard_error(_path: str) -> None:
+    raise RuntimeError(f"{rar.RESUME_GUARD_PREFIX}，请人工核对持仓与资金后重试 resume: x")
+
+
+@pytest.fixture
+def hooked_manager(monkeypatch):
+    """绕过 __init__ 的 StrategyManager；不真启 log sink，_mark_rl_live_error 换收集器。"""
+    manager = object.__new__(StrategyManager)
+    manager._kernel_runs = {}
+    monkeypatch.setattr(sm_module, "start_worker_log_sink", lambda wid: None)
+    errors: list[str] = []
+    monkeypatch.setattr(manager, "_mark_rl_live_error", lambda wid, msg: errors.append(msg))
+    return manager, errors
+
+
+def _journal_file(tmp_path: Path) -> Path:
+    journal = tmp_path / "worker_930.jsonl"
+    journal.write_text('{"t":1}\n', encoding="utf-8")
+    return journal
+
+
+def test_live_thread_falls_back_to_error_when_gate_rejects(hooked_manager, tmp_path, monkeypatch):
+    manager, errors = hooked_manager
+    journal = _journal_file(tmp_path)
+    monkeypatch.setattr(sm_module.resume_auto_recovery, "try_auto_recover", lambda *a, **k: False)
+
+    driver = SimpleNamespace(connect=lambda: None, resume=_guard_error, start=lambda p: None)
+    manager._driver_live_thread_main(930, driver, str(journal), threading.Event(), None)
+
+    assert len(errors) == 1
+    assert "实盘连接/恢复失败" in errors[0]
+    assert 930 not in manager._kernel_runs
+
+
+def test_live_thread_retries_start_after_auto_recover_then_errors(hooked_manager, tmp_path, monkeypatch):
+    """自动恢复已归档但 fresh start 失败：落「自动恢复后启动失败」并退出线程。"""
+    manager, errors = hooked_manager
+    journal = _journal_file(tmp_path)
+    monkeypatch.setattr(
+        sm_module.resume_auto_recovery,
+        "try_auto_recover",
+        lambda *a, **k: True,  # 归档/撤单/审计已由 Task 5 单测覆盖
+    )
+
+    def _start_boom(_path: str) -> None:
+        raise RuntimeError("start 失败：交易所不可达")
+
+    driver = SimpleNamespace(connect=lambda: None, resume=_guard_error, start=_start_boom)
+    manager._driver_live_thread_main(931, driver, str(journal), threading.Event(), None)
+
+    assert len(errors) == 1
+    assert "自动恢复后启动失败" in errors[0]
+    assert 931 not in manager._kernel_runs
+
+
+def test_live_thread_passes_archive_fn_from_manager(hooked_manager, tmp_path, monkeypatch):
+    """挂钩必须传 self.archive_journal_files（而不是模块内另起炉灶）。"""
+    manager, _ = hooked_manager
+    journal = _journal_file(tmp_path)
+    captured: dict[str, object] = {}
+
+    def _fake_try(worker_id, error_message, trade_sync, wlog, *, archive_fn, journal_path=None, now=None):
+        captured["archive_fn"] = archive_fn
+        captured["journal_path"] = journal_path
+        return False
+
+    monkeypatch.setattr(sm_module.resume_auto_recovery, "try_auto_recover", _fake_try)
+    driver = SimpleNamespace(connect=lambda: None, resume=_guard_error, start=lambda p: None)
+    manager._driver_live_thread_main(932, driver, str(journal), threading.Event(), None)
+    assert captured["archive_fn"] == manager.archive_journal_files
+    assert captured["journal_path"] == str(journal)

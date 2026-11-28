@@ -30,7 +30,7 @@ from strategy.decision_recording import default_replay_dir, worker_replay_path, 
 from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
-from . import crud, execution_lock
+from . import crud, execution_lock, resume_auto_recovery
 from .events import EVENTS_SCHEMA_VERSION
 from .exceptions import (
     WorkerAlreadyRunningException,
@@ -1129,13 +1129,25 @@ class StrategyManager:
             else:
                 driver.start(str(journal))
         except Exception as e:
-            wlog.error(
-                f"[StrategyManager] 实盘连接/恢复失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
-            )
-            self._mark_rl_live_error(worker_id, f"实盘连接/恢复失败: {e}")
-            # 线程已死，原地清掉运行态，避免残留条目让后续 stop/restart 摸到僵尸驱动
-            self._kernel_runs.pop(worker_id, None)
-            return
+            # P-恢复：对账守卫拒绝（恢复守卫拒绝继续交易）走自动恢复——归档旧
+            # journal 并以交易所为准 fresh start；其余异常/总闸拒绝保持原失败路径
+            if not resume_auto_recovery.try_auto_recover(
+                worker_id,
+                str(e),
+                trade_sync,
+                wlog,
+                archive_fn=self.archive_journal_files,
+                journal_path=str(journal),
+            ):
+                wlog.error(
+                    f"[StrategyManager] 实盘连接/恢复失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+                )
+                self._mark_rl_live_error(worker_id, f"实盘连接/恢复失败: {e}")
+                # 线程已死，原地清掉运行态，避免残留条目让后续 stop/restart 摸到僵尸驱动
+                self._kernel_runs.pop(worker_id, None)
+                return
+            if not self._restart_after_auto_recover(worker_id, driver, journal, wlog):
+                return
 
         wlog.info(f"[StrategyManager] 实盘 tick 循环启动: worker_id={worker_id}")
         # 启动观测（P0-01/P0-02）：孤立成交与同步游标 gap 只告警不阻断，放线程
@@ -1718,6 +1730,22 @@ class StrategyManager:
                 db.commit()
         except Exception as e:
             logger.error(f"[StrategyManager] RL 循环错误状态落库失败: worker_id={worker_id}, error={e}")
+
+    def _restart_after_auto_recover(self, worker_id: int, driver: Any, journal: Path, wlog: Any) -> bool:
+        """自动恢复后的 fresh start（journal 已归档，Rust 走 start+adopt 以
+        交易所持仓与现金重锚）。返回 False 表示重启失败已落 error，线程退出。"""
+        try:
+            driver.start(str(journal))
+        except Exception as e:
+            wlog.error(
+                f"[StrategyManager] 自动恢复后 fresh start 失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+            )
+            self._mark_rl_live_error(worker_id, f"实盘自动恢复后启动失败: {e}")
+            self._kernel_runs.pop(worker_id, None)
+            return False
+        # 前端事件文案（spec §前端呈现）：per-worker 日志面板 + 错误日志通道可见
+        wlog.warning("[StrategyManager] 对账不一致，已归档并按交易所为准自动重建（fresh start adopt）")
+        return True
 
     def _rl_live_journal_path(self, worker_id: int) -> str:
         """RL 实盘 journal 文件路径：backend/data/rl_live/worker_{id}.jsonl。
